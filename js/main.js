@@ -14,9 +14,6 @@
     panelBtn: $('panelBtn'),
     panelClose: $('panelClose'),
     sortSeg: $('sortSeg'),
-    orderInput: $('orderInput'),
-    orderUp: $('orderUp'),
-    orderDown: $('orderDown'),
     resetBtn: $('resetBtn'),
     nistBtn: $('nistBtn'),
     nistModal: $('nistModal'),
@@ -45,7 +42,6 @@
     criteriaBody: $('criteriaBody'),
     lastCpuMove: $('lastCpuMove'),
     records: $('records'),
-    trend: $('trend'),
     historyStats: $('historyStats'),
     alphaInput: $('alphaInput'),
     alphaOut: $('alphaOut'),
@@ -55,6 +51,8 @@
     hlInput: $('hlInput'),
     hlOut: $('hlOut'),
     hlCompare: $('hlCompare'),
+    exploreCompare: $('exploreCompare'),
+    predictCompare: $('predictCompare'),
     randomness: $('randomness'),
     autoInput: $('autoInput'),
     paramReset: $('paramReset'),
@@ -73,27 +71,35 @@
     hitTries: 0,
     hitLog: [],                        // 每局 AI 预测是否命中（1/0），供半衰期加权的命中率使用
     ideal: { win: 0, lose: 0 },        // 假设从不探索、始终按最优预测出招时的胜负
+    bestLog: [],                       // 每局「按最优出招」的胜负（'cpu'/'human'/'draw'），用于估计探索上限
     lastAvgAcc: null,                  // 上一局各参与标准的加权平均应验率
     streak: { side: null, count: 0 },
     lastResult: null,
-    shadow: [],                        // 每局各收缩档位的影子战绩（'cpu'/'human'/'draw'，视角为电脑）
-    shadowMoves: null,                 // 本局各档位分别选出的招
-    rateTable: null,                   // 各档位在最近窗口的电脑胜率（供面板展示）
-    decayShadow: [],                   // 每局各半衰期档位的影子战绩
-    decayMoves: null,                  // 本局各半衰期档位分别选出的招
-    decayRateTable: null,              // 各半衰期档位在最近窗口的电脑胜率
+    shadow: [],                        // 每局各收缩档位的预测是否命中（1/0）
+    shadowTargets: null,               // 本局各收缩档位的预测招
+    rateTable: null,                   // 各档位在最近窗口的命中率（供面板展示）
+    decayShadow: [],                   // 每局各半衰期档位的预测是否命中（1/0）
+    decayTargets: null,                // 本局各半衰期档位的预测招
+    decayRateTable: null,              // 各半衰期档位在最近窗口的命中率
+    exploreStat: null,                 // 探索上限的判定过程 { w, nEff, z }
+    exploreCap: 0,                     // 探索上限（由显著性检验得出）
+    predictStat: null,                 // 押注判定的过程 { w, nEff, z, trust }
+    predictTrust: 0,                   // 押注概率（0 = 预测不显著，改按分布取样）
   };
+
+  // 记忆阶数：固定为 3（不再支持自定义；阶数越高越关注长序列规律，但样本需求也越大）
+  const ORDER = 3;
 
   const readOptions = () => ({
     alpha: Number(els.alphaInput.value),
-    exploreScale: Number(els.epsInput.value),
+    exploreScale: Number(els.epsInput.value) / 100,
     explore: els.exploreInput.checked,
     confidence: Number(els.confInput.value),
     halfLife: Number(els.hlInput.value),
   });
   const newPredictor = (N) => new Predictor(N, readOptions());
 
-  let predictor = newPredictor(Number(els.orderInput.value) || 3);
+  let predictor = newPredictor(ORDER);
   let panelSort = 'weight';  // 'weight' 按权重 | 'acc' 按应验率 | 'default' 默认顺序
 
   // 自动调参：候选的样本收缩档位（0 = 完全按应验率加权）、评估窗口与最少样本
@@ -103,27 +109,59 @@
   // 记忆衰减档位（半衰期，局），取 2 的幂便于按对数均匀覆盖；0 = 不遗忘
   const DECAY_TIERS = [0, 64, 32, 16, 8];
 
+  // 探索强度档位（保底纯随机概率），从低到高；自动调参在此之间按电脑胜率择优
+  const EXPLORE_TIERS = [0, 0.1, 0.2, 0.35, 0.5, 0.7, 1];
+
   // 每个半衰期档位维护一份独立模型，同时学习同一份历史，用于比较电脑胜率
   let decayModels = [];
   function rebuildDecayModels() {
-    const N = Number(els.orderInput.value) || 3;
+    const N = ORDER;
     decayModels = DECAY_TIERS.map((hl) =>
       new Predictor(N, Object.assign(readOptions(), { halfLife: hl }))
     );
     for (const m of decayModels) m.replay(state.history);
   }
 
+  /* ------------------------------ 出招日志（证明电脑没作弊） ------------------------------ */
+
+  /** 电脑选定出招时（你尚未出招）打印一条结构化日志：彩色标签 + 可展开的详情对象 */
+  function logCpuMove(round, d) {
+    const source = d.explore ? '探索随机' : d.sampled ? '按分布取样' : '押注最优招';
+    const t = new Date();
+    const hhmmss = t.toLocaleTimeString('zh-CN', { hour12: false })
+      + '.' + String(t.getMilliseconds()).padStart(3, '0');
+    console.log(
+      `%cRPS%c 第 ${round} 局 %c${EMOJI[d.cpuMove]} ${NAMES[d.cpuMove]}(${d.cpuMove})%c  ·  ${source}  ·  ${hhmmss}`,
+      'background:#7b6cff;color:#fff;border-radius:4px;padding:1px 5px;font-weight:700',
+      'color:#a6afc9',
+      'color:#ffd76a;font-weight:700',
+      null,
+      {
+        局号: round,
+        电脑出招: `${NAMES[d.cpuMove]}(${d.cpuMove})`,
+        决策来源: source,
+        预测你出: `${NAMES[d.target]}(${d.target})`,
+        预测最大概率: Math.max(d.metaProbs.R, d.metaProbs.P, d.metaProbs.S),
+        探索概率: d.epsilon,
+        押注概率: d.trust,
+        时间戳: t.toISOString(),
+      }
+    );
+  }
+
   /* ------------------------------ 流程 ------------------------------ */
 
   function startRound() {
+    syncPredictTrust();
     state.pending = predictor.decide(state.history);
-    // 影子：同一局面下各收缩档位分别会出什么招，用于赛后比较电脑胜率（取不含探索的最优招）
-    state.shadowMoves = Z_CANDIDATES.map((zz) => predictor.decide(state.history, zz).bestCpu);
-    // 影子：各记忆半衰期档位（各持一份模型）在同一局面下的出招，都用当前收缩强度
-    state.decayMoves = decayModels.map((m) => m.decide(state.history).bestCpu);
+    // 影子：各收缩档位在同一局面下的「预测招」，用于赛后比较预测命中率（不含探索）
+    state.shadowTargets = Z_CANDIDATES.map((zz) => predictor.decide(state.history, zz).target);
+    // 影子：各记忆半衰期档位（各持一份模型）在同一局面下的「预测招」
+    state.decayTargets = decayModels.map((m) => m.decide(state.history).target);
     if (state.pending && state.pending.avgAcc != null) state.lastAvgAcc = state.pending.avgAcc;
     state.revealed = false;
     state.revealedMove = null;
+    logCpuMove(state.history.length + 1, state.pending);   // 出招已定，立刻打日志（你还没出招）
     renderArena();
     renderPanel();
   }
@@ -145,24 +183,28 @@
     state.hitLog.push(hitThisRound ? 1 : 0);
     if (state.hitLog.length > 5000) state.hitLog.splice(0, state.hitLog.length - 5000);
 
-    // 若这局不探索（始终按最优预测出招）的胜负，用于「最优胜率」
+    // 若这局不探索（始终按最优预测出招）的胜负，用于「最优胜率」与探索上限估计
     const idealRes = judge(move, state.pending.bestCpu);
     if (idealRes === 'cpu') state.ideal.win++;
     else if (idealRes === 'human') state.ideal.lose++;
+    state.bestLog.push(idealRes);
+    if (state.bestLog.length > Z_WINDOW * 3) state.bestLog.splice(0, state.bestLog.length - Z_WINDOW * 3);
 
-    // 影子战绩：各收缩档位在同一局里分别出招的胜负（视角为电脑）
-    if (state.shadowMoves) {
-      state.shadow.push(state.shadowMoves.map((c) => judge(move, c)));
+    // 影子战绩：各收缩档位的预测是否命中你实际出招
+    if (state.shadowTargets) {
+      state.shadow.push(state.shadowTargets.map((t) => (t === move ? 1 : 0)));
       const keep = Z_WINDOW * 3;
       if (state.shadow.length > keep) state.shadow.splice(0, state.shadow.length - keep);
     }
 
-    // 影子战绩：各记忆半衰期档位在同一局里分别出招的胜负
-    if (state.decayMoves) {
-      state.decayShadow.push(state.decayMoves.map((c) => judge(move, c)));
+    // 影子战绩：各记忆半衰期档位的预测是否命中你实际出招
+    if (state.decayTargets) {
+      state.decayShadow.push(state.decayTargets.map((t) => (t === move ? 1 : 0)));
       const keep = Z_WINDOW * 3;
       if (state.decayShadow.length > keep) state.decayShadow.splice(0, state.decayShadow.length - keep);
     }
+
+    // 影子战绩：各探索档位已在 autoTuneStep 中直接由显著性检验决定，无需再记战绩
 
     if (result === 'draw') {
       state.streak = { side: null, count: 0 };
@@ -195,15 +237,19 @@
     state.hitTries = 0;
     state.hitLog = [];
     state.ideal = { win: 0, lose: 0 };
+    state.bestLog = [];
     state.streak = { side: null, count: 0 };
     state.lastResult = null;
     state.shadow = [];
-    state.shadowMoves = null;
+    state.shadowTargets = null;
     state.rateTable = null;
     state.decayShadow = [];
-    state.decayMoves = null;
+    state.decayTargets = null;
     state.decayRateTable = null;
-    predictor = newPredictor(Number(els.orderInput.value) || 3);
+    state.exploreStat = null;
+    state.predictStat = null;
+    state.predictTrust = 0;
+    predictor = newPredictor(ORDER);
     rebuildDecayModels();
     renderScores();
     renderHistory();
@@ -213,7 +259,7 @@
   /* ------------------------------ 存档 ------------------------------ */
 
   // 私有紧凑格式（单行）：
-  // RPSD1|阶数|α|探索强度|探索开关|自动调参|统计数字|历史|命中记录
+  // RPSD1|阶数|α|探索强度(0~1)|探索开关|自动调参|统计数字|历史|命中记录
   //  统计数字 = cpu,human,draw,hit,hitTries,idealWin,idealLose,confidence,halfLife
   //  历史 = 每局 2 个字符（人类招 + 电脑招）；命中记录 = 每局 1 个字符（1/0，AI 预测是否命中）
   function buildSave() {
@@ -227,7 +273,7 @@
     ].join(',');
     return [
       'RPSD1',
-      Number(els.orderInput.value) || 3,
+      ORDER,
       predictor.options.alpha,
       predictor.options.exploreScale,
       els.exploreInput.checked ? 1 : 0,
@@ -254,7 +300,7 @@
       order: Number(parts[1]) || 3,
       options: {
         alpha: Number(parts[2]) || 1,
-        exploreScale: parts[3] != null ? Number(parts[3]) : 1,
+        exploreScale: parts[3] != null ? Number(parts[3]) : 0.1,
         explore: parts[4] !== '0',
       },
       autoTune: parts[5] !== '0',
@@ -305,37 +351,36 @@
     state.hitTries = d.hitTries | 0;
     state.hitLog = Array.isArray(d.hitLog) ? d.hitLog.slice(-5000) : [];
     state.ideal = Object.assign({ win: 0, lose: 0 }, d.ideal || {});
+    state.bestLog = [];
     state.streak = { side: null, count: 0 };
     state.lastResult = null;
 
-    els.orderInput.value = String(Math.min(6, Math.max(1, (d.order | 0) || 3)));
-
     const opt = d.options || {};
     if (opt.alpha != null) els.alphaInput.value = String(opt.alpha);
-    if (opt.exploreScale != null) els.epsInput.value = String(opt.exploreScale);
+    if (opt.exploreScale != null) els.epsInput.value = String(Math.round(opt.exploreScale * 100));
     els.exploreInput.checked = opt.explore !== false;
     els.confInput.value = String(d.confidence != null ? d.confidence : 1);
     els.hlInput.value = String(d.halfLife != null ? d.halfLife : 16);
     els.alphaOut.textContent = Number(els.alphaInput.value).toFixed(1);
-    els.epsOut.textContent = Number(els.epsInput.value).toFixed(1) + '×';
+    els.epsOut.textContent = Math.round(Number(els.epsInput.value)) + '%';
     els.confOut.textContent = Number(els.confInput.value).toFixed(1);
     els.hlOut.textContent = Number(els.hlInput.value) > 0 ? Number(els.hlInput.value) + ' 局' : '不遗忘';
     els.autoInput.checked = d.autoTune !== false;
 
     state.shadow = [];
-    state.shadowMoves = null;
+    state.shadowTargets = null;
     state.rateTable = null;
     state.decayShadow = [];
-    state.decayMoves = null;
+    state.decayTargets = null;
     state.decayRateTable = null;
+    state.exploreStat = null;
+    state.predictStat = null;
+    state.predictTrust = 0;
     predictor = newPredictor(Number(els.orderInput.value));
     predictor.replay(state.history);
     rebuildDecayModels();
 
-    els.alphaInput.disabled = els.autoInput.checked;
-    els.confInput.disabled = els.autoInput.checked;
-    els.epsInput.disabled = els.autoInput.checked;
-    els.hlInput.disabled = els.autoInput.checked;
+    syncParamDisabled();
 
     autoTuneStep();
     renderScores();
@@ -343,16 +388,36 @@
     startRound();
   }
 
-  function setOrder(n) {
-    const N = Math.min(6, Math.max(1, n | 0 || 1));
-    els.orderInput.value = String(N);
-    predictor = newPredictor(N);
-    predictor.replay(state.history);
-    rebuildDecayModels();
-    startRound();
+  /** 参数控件可用性：自动调参接管时锁定；探索扰动关掉后探索强度也锁定 */
+  function syncParamDisabled() {
+    const auto = els.autoInput.checked;
+    const exploreOff = !els.exploreInput.checked;
+    const setLock = (el, lockedByAuto, off) => {
+      el.disabled = lockedByAuto || off;
+      el.dataset.lock = off ? 'off' : lockedByAuto ? 'auto' : '';
+    };
+    setLock(els.alphaInput, auto, false);
+    setLock(els.confInput, auto, false);
+    setLock(els.hlInput, auto, false);
+    setLock(els.epsInput, auto, exploreOff);
   }
 
-  /** 自动调参：α 随样本量降低；探索强度按「AI 被针对程度」增减 */
+  /** 时间加权平均：arr 由旧到新，hl 为半衰期（局）；hl = 0 时等权 */
+  function wavg(arr, hl) {
+    const n = arr.length;
+    if (!n) return 0;
+    if (!hl) return arr.reduce((a, b) => a + b, 0) / n;
+    let sw = 0;
+    let sv = 0;
+    for (let i = 0; i < n; i++) {
+      const w = Math.pow(0.5, (n - 1 - i) / hl);
+      sw += w;
+      sv += arr[i] * w;
+    }
+    return sw ? sv / sw : 0;
+  }
+
+  /** 自动调参：α 随样本量降低；探索强度 / 样本收缩 / 记忆半衰期按实测表现择优 */
   function autoTuneStep() {
     if (!els.autoInput.checked) return;
 
@@ -364,38 +429,63 @@
     els.alphaInput.value = alpha.toFixed(1);
     els.alphaOut.textContent = alpha.toFixed(1);
 
-    // 探索强度：最近窗口里「你出招克制 AI 上一招」的比例偏离 1/3 时调节
-    const W = 20;
-    const recent = state.history.slice(-W);
-    let next = predictor.options.exploreScale;
-    if (recent.length >= 8) {
-      let cnt = 0;
-      for (let i = 1; i < recent.length; i++) {
-        if (relation(recent[i].human, recent[i - 1].cpu) === 'win') cnt++;
-      }
-      const p = cnt / (recent.length - 1);
-      if (p > 1 / 3 + 0.05) next += 0.05;          // 你在针对 AI → 多随机
-      else if (p < 1 / 3 - 0.05) next -= 0.05;     // 你没在针对 → 少送分
-      next = Math.min(1.5, Math.max(0, next));
-      predictor.options.exploreScale = next;
-      els.epsInput.value = next.toFixed(1);
-      els.epsOut.textContent = next.toFixed(1) + '×';
-    }
+    // 各档位评估统一用「当前半衰期」作为权重基准（近期对局权重更大）
+    const baseHl = Number(predictor.options.halfLife) || 0;
 
-    // 样本收缩：让各档位在同一批局面下各自出招，比较「电脑胜率」决定用哪一档；
-    // 从最小收缩开始挑，只有明显赢更多（>3%）才采用更大收缩，否则一路退回完全按应验率。
+    // 探索强度上限：只有「按最优出招」的胜率 w 显著低于随机基准 1/3，才允许开启随机。
+    // 用单侧显著性 z = (1/3 − w) / σ（σ = √(w(1−w)/n_eff)，剔除平局、按半衰期加权取 Kish 有效样本量），
+    // 再平滑映射成上限：z ≤ 1 → 0；z = 2 → 50%；z ≥ 3 → 100%。
+    // 这样“预测本来就不可靠”不会被误判成“被针对”。
+    const blog = state.bestLog.slice(-Z_WINDOW);
+    let maxExplore = 0;
+    let exploreStat = null;
+    if (blog.length >= Z_MIN_SAMPLES) {
+      let sw = 0;
+      let swh = 0;
+      let sw2 = 0;
+      for (let i = 0; i < blog.length; i++) {
+        if (blog[i] === 'draw') continue;                       // 平局剔除
+        const wt = baseHl ? Math.pow(0.5, (blog.length - 1 - i) / baseHl) : 1;
+        sw += wt;
+        sw2 += wt * wt;
+        if (blog[i] === 'cpu') swh += wt;
+      }
+      if (sw > 0) {
+        // Agresti-Coull 平滑（+2 胜 +2 负的伪计数），避免 w=0 时 σ=0 导致公式退化
+        const w = (swh + 2) / (sw + 4);
+        const nEff = sw2 ? (sw * sw) / sw2 : 0;
+        const sigma = Math.sqrt((w * (1 - w)) / (nEff + 4));
+        const z = sigma > 0 ? (1 / 3 - w) / sigma : 0;
+        maxExplore = Math.min(1, Math.max(0, (z - 1) / 2));
+        exploreStat = { w, nEff, z };
+      }
+    }
+    state.exploreCap = maxExplore;
+    state.exploreStat = exploreStat;
+    // 目标档位：不超上限的最高档
+    const allowed = EXPLORE_TIERS.filter((v) => v <= maxExplore + 1e-9);
+    const targetScale = allowed.length ? allowed[allowed.length - 1] : 0;
+
+    let scale = predictor.options.exploreScale;
+    {
+      let cur = 0;
+      for (let i = 1; i < EXPLORE_TIERS.length; i++) {
+        if (Math.abs(EXPLORE_TIERS[i] - scale) < Math.abs(EXPLORE_TIERS[cur] - scale)) cur = i;
+      }
+      const ti = EXPLORE_TIERS.indexOf(targetScale);
+      if (ti !== cur) cur += Math.sign(ti - cur);   // 每局最多移动一档
+      scale = EXPLORE_TIERS[cur];
+    }
+    els.epsInput.value = String(Math.round(scale * 100));
+    els.epsOut.textContent = Math.round(scale * 100) + '%';
+    predictor.options.exploreScale = scale;
+
+    // 样本收缩：比较各档位的「预测命中率」决定用哪一档（命中率越高 = 预测越准）。
+    // 统一以「当前半衰期」为权重基准，近期对局权重更大。
     let z = Number(els.confInput.value);
     const win = state.shadow.slice(-Z_WINDOW);
     if (win.length) {
-      const rates = Z_CANDIDATES.map((_, i) => {
-        let w = 0;
-        let l = 0;
-        for (const r of win) {
-          if (r[i] === 'cpu') w++;
-          else if (r[i] === 'human') l++;
-        }
-        return w + l ? w / (w + l) : 0.5;
-      });
+      const rates = Z_CANDIDATES.map((_, i) => wavg(win.map((r) => r[i]), baseHl));
       state.rateTable = Z_CANDIDATES.map((zz, i) => ({ z: zz, rate: rates[i] }));
 
       if (win.length >= Z_MIN_SAMPLES) {
@@ -417,19 +507,11 @@
     els.confOut.textContent = z.toFixed(1);
     predictor.options.confidence = z;
 
-    // 记忆衰减：各半衰期档位（各持一份模型）比最近窗口的电脑胜率，择优（优先更长的记忆）
+    // 记忆衰减：各半衰期档位比较「预测命中率」，且各自按自己的半衰期加权（短记忆只看近期表现）
     let hl = Number(els.hlInput.value);
     const dwin = state.decayShadow.slice(-Z_WINDOW);
     if (dwin.length) {
-      const drates = DECAY_TIERS.map((_, i) => {
-        let w = 0;
-        let l = 0;
-        for (const r of dwin) {
-          if (r[i] === 'cpu') w++;
-          else if (r[i] === 'human') l++;
-        }
-        return w + l ? w / (w + l) : 0.5;
-      });
+      const drates = DECAY_TIERS.map((v, i) => wavg(dwin.map((r) => r[i]), v));
       state.decayRateTable = DECAY_TIERS.map((v, i) => ({ hl: v, rate: drates[i] }));
 
       if (dwin.length >= Z_MIN_SAMPLES) {
@@ -455,6 +537,43 @@
     }
 
     if (alphaChanged) predictor.replay(state.history);
+  }
+
+  /**
+   * 押注判定：只有「AI 预测命中率」显著高于随机基准 1/3，才值得按最优招押注。
+   * 预测未被证明有用时，`decide` 会改按预测分布取样——argmax 是确定性函数，
+   * 靠噪声排出的「最优招」排序一旦固定，AI 就会长期出同一招，极易被反制。
+   * 与探索上限同一套口径（Agresti-Coull 平滑 + Kish 有效样本量 + 单侧 z 检验），方向相反：
+   * z ≤ 1 → 不押注（0），z = 2 → 50%，z ≥ 3 → 100%。
+   */
+  function syncPredictTrust() {
+    const hl = Number(predictor.options.halfLife) || 0;
+    const win = state.hitLog.slice(-Z_WINDOW);
+    let stat = null;
+    let trust = 0;
+    if (win.length >= Z_MIN_SAMPLES) {
+      let sw = 0;
+      let swh = 0;
+      let sw2 = 0;
+      for (let i = 0; i < win.length; i++) {
+        const wt = hl ? Math.pow(0.5, (win.length - 1 - i) / hl) : 1;
+        sw += wt;
+        sw2 += wt * wt;
+        if (win[i]) swh += wt;
+      }
+      if (sw > 0) {
+        // Agresti-Coull 平滑：+2 命中 +2 未命中，避免 w 贴近 1/3/1 时公式退化
+        const w = (swh + 2) / (sw + 4);
+        const nEff = sw2 ? (sw * sw) / sw2 : 0;
+        const sigma = Math.sqrt((w * (1 - w)) / (nEff + 4));
+        const z = sigma > 0 ? (w - 1 / 3) / sigma : 0;
+        trust = Math.min(1, Math.max(0, (z - 1) / 2));
+        stat = { w, nEff, z, trust };
+      }
+    }
+    state.predictStat = stat;
+    state.predictTrust = trust;
+    predictor.options.predictTrust = trust;
   }
 
   /* ------------------------------ 渲染 ------------------------------ */
@@ -487,21 +606,20 @@
     }
 
     const hs = hitStats();
+    // 提示只挂在整条（#hitRateWrap）上；#hitRate 上残留的 data-tip 要清掉，否则会弹出两条
+    els.hitRate.removeAttribute('data-tip');
+    els.hitRate.removeAttribute('title');
     if (hs.a == null) {
       els.hitRate.textContent = '—';
-      els.hitRate.title = '';
-      els.hitRateWrap.title = 'AI 预测命中率：AI 按预测最优出招时命中你实际出招的比例（不含探索扰动）';
+      els.hitRateWrap.title = 'AI 预测命中率：AI 对你下一招的预测命中你实际出招的比例（与电脑实际出招无关）。';
     } else {
       const a = Math.round(hs.a * 100);
-      const b = hs.b == null ? a : Math.round(hs.b * 100);
+      const b = Math.round((hs.b == null ? hs.a : hs.b) * 100);
       const hl = Number(predictor.options.halfLife) || 0;
-      const hlText = hl > 0 ? `半衰期 ${hl} 局` : '半衰期为 0（不遗忘）';
-      els.hitRate.textContent = a === b ? `${a}%` : `${a}% / ${b}%`;
-      const tip = a === b
-        ? `AI 预测命中率：AI 按预测最优出招时命中你实际出招的比例（不含探索）。${a}%（全部统计与按${hlText}加权一致）`
-        : `AI 预测命中率：AI 按预测最优出招时命中你实际出招的比例（不含探索）。全部统计 ${a}% · 按${hlText}加权 ${b}%`;
-      els.hitRate.title = tip;
-      els.hitRateWrap.title = tip;
+      const hlText = hl > 0 ? `半衰期 ${hl} 局` : '不遗忘（等同全部统计）';
+      els.hitRate.textContent = `${b}%`;
+      els.hitRateWrap.title = 'AI 预测命中率：AI 对你下一招的预测命中你实际出招的比例（与电脑实际出招无关）。'
+        + `显示值按${hlText}加权（${b}%），全部统计为 ${a}%。`;
     }
 
     const idealTotal = state.ideal.win + state.ideal.lose;
@@ -524,6 +642,7 @@
         btn.classList.toggle('picked', btn.dataset.move === state.revealedMove);
       });
       els.humanTag.textContent = `出招：${NAMES[state.revealedMove]}`;
+      els.cpuTag.title = '按 F12 打开控制台可查看每局记录（出招、决策来源、预测与时间戳等）。';
 
       const map = {
         human: ['你赢了！', 'win'],
@@ -536,6 +655,7 @@
       els.cpuMove.innerHTML = '<span class="glyph unknown">?</span>';
       els.cpuMove.className = 'move-slot';
       els.cpuTag.textContent = '已出招 · 待揭示';
+      els.cpuTag.title = '按 F12 打开控制台可查看每局记录（出招、决策来源、预测与时间戳等）。';
 
       els.choices.classList.remove('locked');
       els.choices.querySelectorAll('.choice').forEach((btn) => {
@@ -583,8 +703,10 @@
   }
 
   function renderPanel() {
+    renderCompare();      // 参数面板里的档位对比/探索判定独立于分析面板，随时保持最新
+    renderRandomness();   // 人类不可预测性评估在左侧游戏区，同样与面板开关无关
     if (els.panel.hidden || !state.pending) return;
-    const { metaProbs, cpuMove, breakdown, epsilon, explore, weightSum, scores } = state.pending;
+    const { metaProbs, cpuMove, bestCpu, breakdown, epsilon, explore, sampled, weightSum, scores } = state.pending;
 
     // 预测概览（无真实依据时不显示预测）
     const hasData = breakdown.some((b) => !b.baseline && b.matched);
@@ -604,24 +726,32 @@
           </div>`;
       }).join('');
 
-      // 电脑三招各自的期望收益（赢概率 − 输概率），实际出招高亮
+      // 电脑三招各自的期望收益（赢概率 − 输概率），高亮收益最高的一招
       const evRows = MOVES.map((c) => {
         const s = (scores && scores[c]) || 0;
-        return `<div class="fc-ev-row${c === cpuMove ? ' on' : ''}">
-          <span class="fc-ev-name">${EMOJI[c]} ${NAMES[c]}</span>
-          <span class="fc-ev-val">${s >= 0 ? '+' : ''}${s.toFixed(2)}</span>
-        </div>`;
+        return `<span class="fc-ev-chip${c === bestCpu ? ' on' : ''}"><i>${EMOJI[c]}</i>${s >= 0 ? '+' : ''}${s.toFixed(2)}</span>`;
       }).join('');
 
       const bv = (scores && scores[cpuMove]) || 0;
+      const noData = weightSum === 0;
+      const targetNote = noData
+        ? '（随机出招）'
+        : explore
+          ? '（探索）'
+          : sampled
+            ? '（按分布取样）'
+            : '';
+
+      // 本局随机概率的提示：三项来源取最大，并指出当前是谁在起作用
+      const epsTip = epsBreakdown(state.pending).tip;
       els.forecast.innerHTML = `
         <div class="fc-head">下招预测（你）</div>
         ${bars}
         ${weightSum > 0
-          ? `<div class="fc-ev"><div class="fc-ev-head" title="每招的期望收益 = 该招击败你的概率 − 该招被你击败的概率，取最大者出招。">电脑各招期望收益 = 赢概率 − 输概率</div>${evRows}</div>`
+          ? `<div class="fc-ev" title="每招的期望收益 = 该招击败你的概率 − 该招被你击败的概率，取最大者出招。"><span class="fc-ev-head">期望收益</span><div class="fc-ev-chips">${evRows}</div></div>`
           : '<div class="fc-alert">所有标准的应验率都没超过随机基准 33%，AI 暂无可信依据，本局只能随机出招。</div>'}
-        <div class="fc-target">电脑选 <b>${EMOJI[cpuMove]} ${NAMES[cpuMove]}</b>${explore ? '（本局探索触发，并非按期望收益所选）' : ''}，期望收益 <b>${bv >= 0 ? '+' : ''}${bv.toFixed(2)}</b></div>
-        <div class="fc-note" title="探索扰动 ε：本局放弃按期望收益出招、改为完全随机出招的概率。预测最大概率：AI 对你下一招预测分布中的最高概率。">探索扰动 ε = ${(epsilon * 100).toFixed(1)}% · 预测最大概率 ${pctText(Math.max(metaProbs.R, metaProbs.P, metaProbs.S))}</div>
+        <div class="fc-target" title="AI 按「期望收益最高」的一招出招。括号说明本局的特殊情况：「随机出招」= 所有标准应验率都没超过随机基准，只能随机出招；「探索」= 本局触发探索扰动，并非按期望收益所选；「按分布取样」= 预测尚未显著优于随机，改按预测分布取样。">电脑选 <b>${EMOJI[cpuMove]} ${NAMES[cpuMove]}</b>${targetNote}${noData ? '' : `，期望收益 <b>${bv >= 0 ? '+' : ''}${bv.toFixed(2)}</b>`}</div>
+        <div class="fc-note" data-tip="${epsTip}">${noData ? '' : `本局随机出招概率 ${(epsilon * 100).toFixed(1)}%`}</div>
       `;
     }
 
@@ -702,9 +832,34 @@
         </tr>`;
       })
       .join('');
+  }
 
-    renderCompare();
-    renderRandomness();
+  /** 档位胜率对比：一行一个档位（标签 · 条形 · 胜率），当前档位高亮；rate 为空时留空 */
+  const cmpRow = (k, rate, on) => {
+    const has = rate != null;
+    return `<div class="cmp-row${on ? ' on' : ''}"><span class="cmp-k">${k}</span>` +
+      `<span class="cmp-track"><i style="width:${has ? (rate * 100).toFixed(0) : 0}%"></i></span>` +
+      `<span class="cmp-v">${has ? (rate * 100).toFixed(0) + '%' : '\u2014'}</span></div>`;
+  };
+  const cmpTitle = (text, n, tip) =>
+    `<div class="cmp-title"${tip ? ` title="${tip}"` : ''}>${text}${n ? `<span class="cmp-sub">最近 ${n} 局</span>` : ''}</div>`;
+
+  /**
+   * 本局纯随机出招概率（ε）的来源明细。
+   * ε = max(探索强度档位, 开局随机度, 自适应扰动)，只有「探索强度档位」受上层显著性检验的上限约束。
+   */
+  function epsBreakdown(pd) {
+    const items = [
+      ['探索强度档位', Number(pd.exploreScale) || 0, true],
+      ['开局随机度', Number(pd.earlyRand) || 0, false],
+      ['自适应扰动', Number(pd.adaptiveEps) || 0, false],
+    ];
+    const top = items.reduce((a, b) => (b[1] > a[1] ? b : a));
+    const tip = '本局真正采用的纯随机出招概率 = 三项取最大：'
+      + items.map(([n, v, capped]) => `${n} ${(v * 100).toFixed(1)}%${capped ? '（受上限约束）' : '（不受上限约束）'}`).join('、')
+      + `。当前起作用的是「${top[0]}」`
+      + (top[2] ? '。' : '——它不受上限约束，所以会比参数面板里的「探索强度上限」高。');
+    return { top, tip };
   }
 
   /** 各档位的电脑胜率对比（自动调参依据） */
@@ -712,26 +867,43 @@
     if (!els.confCompare) return;
     const win = state.shadow.slice(-Z_WINDOW);
     const t = state.rateTable;
-    if (!t || !win.length) {
-      els.confCompare.textContent = '收缩档位胜率对比：数据积累中…';
-    } else {
-      const cur = Number(els.confInput.value) || 0;
-      els.confCompare.innerHTML =
-        `<span class="cc-title">各档位电脑胜率（最近 ${win.length} 局）</span>` +
-        t.map((r) => `<span class="cc${Math.abs(r.z - cur) < 1e-9 ? ' on' : ''}">收缩 ${r.z} → ${(r.rate * 100).toFixed(0)}%</span>`).join('');
+    const cur = Number(els.confInput.value) || 0;
+    els.confCompare.innerHTML = cmpTitle('收缩档位命中率', win.length, '预测命中率 = 该档位对下一招的预测命中你实际出招的比例（以当前半衰期为权重基准）') +
+      Z_CANDIDATES.map((zz, i) => cmpRow(String(zz), t ? t[i].rate : null, Math.abs(zz - cur) < 1e-9)).join('');
+
+    if (els.hlCompare) {
+      const dwin = state.decayShadow.slice(-Z_WINDOW);
+      const dt = state.decayRateTable;
+      const curHl = Number(els.hlInput.value) || 0;
+      els.hlCompare.innerHTML = cmpTitle('记忆半衰期命中率', dwin.length, '预测命中率 = 该档位对下一招的预测命中你实际出招的比例（各档位按自身半衰期加权）') +
+        DECAY_TIERS.map((v, i) => cmpRow(v > 0 ? v + ' 局' : '不遗忘', dt ? dt[i].rate : null, v === curHl)).join('');
     }
 
-    if (!els.hlCompare) return;
-    const dwin = state.decayShadow.slice(-Z_WINDOW);
-    const dt = state.decayRateTable;
-    if (!dt || !dwin.length) {
-      els.hlCompare.textContent = '记忆衰减档位胜率对比：数据积累中…';
-      return;
-    }
-    const curHl = Number(els.hlInput.value) || 0;
-    els.hlCompare.innerHTML =
-      '<span class="cc-title">各半衰期电脑胜率</span>' +
-      dt.map((r) => `<span class="cc${r.hl === curHl ? ' on' : ''}">${r.hl > 0 ? r.hl + ' 局' : '不遗忘'} → ${(r.rate * 100).toFixed(0)}%</span>`).join('');
+    if (!els.exploreCompare) return;
+    const st = state.exploreStat;
+    const cap = st ? Math.round((state.exploreCap || 0) * 100) : null;
+    const pd = state.pending;
+    const epsInfo = pd ? epsBreakdown(pd) : null;
+    els.exploreCompare.innerHTML =
+      cmpTitle('探索上限判定', state.bestLog.slice(-Z_WINDOW).length,
+        '决定电脑最多能掺多少「纯随机出招」。只有当你已经看穿它、它老老实实按预测出招反而赢不了的时候（胜率明显低于瞎猜的 33%），才会开始掺随机。'
+        + '注意：这个上限只管「探索强度」这一项。下面的「本局实际随机概率」还可能被开局随机度或自适应扰动顶上去，所以会高于上限，并不矛盾。') +
+      `<div class="exp-row" data-tip="最近这些局里，电脑如果每次都按预测最优的那招出，实际赢下的比例（平局不算）。约 33% 就是瞎猜的水平；明显更低，说明它的套路被你看穿了。"><span>按最优出招的胜率</span><b>${st ? (st.w * 100).toFixed(1) + '%' : '\u2014'}</b></div>` +
+      `<div class="exp-row" data-tip="实际参与统计的对局数（按半衰期加权后的等效数量，越近的局权重越大；平局不计入）。局数太少时结果不可靠，所以不足 12 局不做判定。"><span>有效局数</span><b>${st ? st.nEff.toFixed(1) : '\u2014'}</b></div>` +
+      `<div class="exp-row" data-tip="上面那个差距有多可信。≤ 1 视为「没有明显差别」，此时完全不掺随机；到 3 就认为确实被针对了，上限拉满。"><span>可信程度</span><b>${st ? st.z.toFixed(2) : '\u2014'}</b></div>` +
+      `<div class="exp-row" data-tip="自动调参能给「探索强度」档位开到的最大值（由显著性检验决定）。它只管探索强度这一项；开局随机度与自适应扰动不受它约束，所以本局实际随机概率可以比它高。"><span>探索强度上限</span><b>${cap == null ? '\u2014' : cap + '%'}</b></div>` +
+      `<div class="exp-row" data-tip="${epsInfo ? epsInfo.tip : '本局尚未开始。'}"><span>本局实际随机概率</span><b>${epsInfo ? (pd.epsilon * 100).toFixed(1) + '%' : '\u2014'}</b></div>`;
+
+    if (!els.predictCompare) return;
+    const ps = state.predictStat;
+    const tp = Math.round((state.predictTrust || 0) * 100);
+    els.predictCompare.innerHTML =
+      cmpTitle('押注判定', state.hitLog.slice(-Z_WINDOW).length,
+        '决定电脑要不要「押注」自己的预测。只有预测被证明确实比瞎猜准时，它才会挑期望收益最高的那招出；否则按预测分布随机取一招，避免总出同一招被你看穿。') +
+      `<div class="exp-row" data-tip="最近这些局里，电脑对你下一招的预测命中你实际出招的比例（跟它自己出什么招无关）。约 33% 就是瞎猜的水平。"><span>预测命中率</span><b>${ps ? (ps.w * 100).toFixed(1) + '%' : '\u2014'}</b></div>` +
+      `<div class="exp-row" data-tip="实际参与统计的对局数（按半衰期加权后的等效数量，越近的局权重越大）。局数太少时结果不可靠，所以不足 12 局不做判定。"><span>有效局数</span><b>${ps ? ps.nEff.toFixed(1) : '\u2014'}</b></div>` +
+      `<div class="exp-row" data-tip="「预测确实比瞎猜准」这一点的可信度。≤ 1 视为没差别，此时不押注；到 3 就完全信任预测，每局都押注最优招。"><span>可信程度</span><b>${ps ? ps.z.toFixed(2) : '\u2014'}</b></div>` +
+      `<div class="exp-row" data-tip="本局有多大概率直接押注最优招，剩下的概率按预测分布取样（出招仍偏向它认为你更可能出的那一招，只是不再固定）。"><span>押注概率</span><b>${tp}%</b></div>`;
   }
 
   /**
@@ -804,21 +976,48 @@
     const r = randomnessReport();
     const over = !!r && r.score > 100;
     els.randomness.classList.toggle('over', over);
-    els.randomness.classList.toggle('max', !!r && r.score >= 150);
+    els.randomness.classList.toggle('max', !!r && r.score >= 140);
     // 特效强度：前段快速抬升（刚破 100 就明显），150 分拉满
     const t = over ? Math.min(1, (r.score - 100) / 50) : 0;
     els.randomness.style.setProperty('--rand-power', (over ? 0.35 + 0.65 * Math.pow(t, 0.6) : 0).toFixed(3));
     if (!r) {
-      els.randomness.innerHTML =
-        '<div class="rand-head"><span>人类不可预测性评估</span></div><div class="rand-empty">玩满 12 局后开始评估</div>';
+      // 未满 12 局：渲染同一套骨架（数值留空），让卡片高度与「评估出来之后」一致，避免跳变
+      els.randomness.innerHTML = `
+        <div class="rand-head">
+          <span>人类不可预测性评估</span>
+          <span class="rand-score">—</span>
+        </div>
+        <div class="rand-bar"><i style="width:0%"></i></div>
+        <div class="rand-rows">
+          <div class="rand-row">
+            <span class="rand-name">AI 预测命中率</span>
+            <span class="rand-val">—</span>
+          </div>
+          <div class="rand-cmp">
+            <div class="rand-cmp-track"><i style="width:0%"></i><u style="left:33.333%"></u></div>
+            <div class="rand-cmp-legend"><span class="l0">0%</span><span class="lbase">随机基准 33%</span><span class="l100">100%</span></div>
+          </div>
+          <div class="rand-row">
+            <span class="rand-name">最大可预测优势</span>
+            <span class="rand-val">—</span>
+          </div>
+          <div class="rand-row">
+            <span class="rand-name">出招分布</span>
+            <span class="rand-val dist">—</span>
+          </div>
+        </div>
+        <div class="rand-verdict">玩满 12 局后开始评估</div>
+        <div class="rand-note">样本满 12 局后开始统计：命中率按<b>半衰期加权</b>口径（近局权重更大），并与随机基准 1/3 比较。</div>`;
       return;
     }
     const verdict =
-      r.score > 100 ? '比随机基准还难预测，AI 基本抓瞎'
-        : r.score >= 90 ? '与真随机基本持平，AI 抓不到'
-          : r.score >= 65 ? '略有规律，AI 只能勉强利用'
-            : r.score >= 35 ? '规律较明显，AI 已经能利用'
-              : '规律很明显，很容易被针对';
+      r.score >= 140 ? 'AI 彻底崩了：它对你毫无还手之力——开挂了吧？！'
+        : r.score > 110 ? 'AI 已经懵了——它的套路全被你反手用在自己身上'
+          : r.score > 100 ? '像是摸到了 AI 的门道，开始反着它出招'
+            : r.score >= 90 ? '与真随机无显著差异，AI 无从利用'
+              : r.score >= 65 ? '存在轻微规律，AI 可部分利用'
+                : r.score >= 35 ? '规律较明显，AI 已能有效利用'
+                  : '规律显著，极易被针对';
     const delta = r.best ? Math.round((r.best.accuracy - 1 / 3) * 100) : 0;
     const hl = Number(predictor.options.halfLife) || 0;
     const hlNote = hl > 0 ? `（半衰期 ${hl} 局）` : '（全部统计）';
@@ -835,7 +1034,7 @@
       </div>
       <div class="rand-bar"><i style="width:${Math.min(100, r.score)}%"></i></div>
       <div class="rand-rows">
-        <div class="rand-row" title="AI 按预测最优出招时命中你实际出招的比例（不含探索扰动）；此处按半衰期加权，近局权重更大（半衰期为 0 时等同全部统计）。">
+        <div class="rand-row" title="AI 对你下一招的预测命中你实际出招的比例（与电脑实际出招无关）；此处按半衰期加权，近局权重更大（半衰期为 0 时等同全部统计）。">
           <span class="rand-name">AI 预测命中率${hlNote}</span>
           <span class="rand-val">${pctText(r.hitRate)}</span>
           <span class="rand-sub">${diffText}</span>
@@ -853,31 +1052,27 @@
           <span class="rand-val dist">${MOVES.map((m) => `<b>${EMOJI[m]} ${((r.cnt[m] / r.total) * 100).toFixed(0)}%</b>`).join('')}</span>
         </div>
       </div>
-      <div class="rand-note">${verdict} · 命中率按<b>半衰期加权</b>口径（近局权重更大）：z > 0（高于 1/3）扣分、最低 0；z < −0.5（明显低于 1/3）加分、最高 150（当前 z = ${r.z.toFixed(2)}，有效样本 ${Math.round(r.n)} 局）。</div>`;
+      <div class="rand-verdict">${verdict}</div>
+      <div class="rand-note">命中率按<b>半衰期加权</b>口径（近局权重更大）：z > 0（高于 1/3）扣分、最低 0；z < −0.5（明显低于 1/3）加分、最高 150（当前 z = ${r.z.toFixed(2)}，有效样本 ${Math.round(r.n)} 局）。</div>`;
   }
 
   /* ------------------------------ 对局记录 ------------------------------ */
 
   function renderHistory() {
     const recs = state.history;
-    const recent = recs.slice(-40);
+    // 色块 10px + 间隙 3px；按可用宽度决定显示多少个，避免溢出（容器不再裁剪，溢出会顶出卡片）
+    const per = 13;
+    const avail = els.records.clientWidth || 260;
+    const maxN = Math.max(6, Math.min(24, Math.floor(avail / per)));
+    const recent = recs.slice(-maxN);
     const base = recs.length - recent.length;
 
     els.records.innerHTML = recent
       .map((r, i) => {
         const res = judge(r.human, r.cpu);
         const label = res === 'human' ? '你赢了' : res === 'cpu' ? '电脑赢了' : '平局';
-        return `<div class="rec ${res}" title="第 ${base + i + 1} 局　你 ${NAMES[r.human]} vs 电脑 ${NAMES[r.cpu]}　${label}">
-          <span class="rec-c">${EMOJI[r.cpu]}</span>
-          <span class="rec-h">${EMOJI[r.human]}</span>
-        </div>`;
+        return `<span class="rec ${res}" title="第 ${base + i + 1} 局　你 ${NAMES[r.human]} vs 电脑 ${NAMES[r.cpu]}　${label}"></span>`;
       })
-      .join('');
-    els.records.scrollLeft = els.records.scrollWidth;
-
-    els.trend.innerHTML = recs
-      .slice(-30)
-      .map((r) => `<i class="${judge(r.human, r.cpu)}"></i>`)
       .join('');
 
     const last10 = recs.slice(-10);
@@ -1001,10 +1196,6 @@
     }
   });
 
-  els.orderUp.addEventListener('click', () => setOrder(Number(els.orderInput.value) + 1));
-  els.orderDown.addEventListener('click', () => setOrder(Number(els.orderInput.value) - 1));
-  els.orderInput.addEventListener('change', () => setOrder(Number(els.orderInput.value)));
-
   els.resetBtn.addEventListener('click', resetAll);
   els.nistBtn.addEventListener('click', () => {
     els.nistModal.hidden = false;
@@ -1046,23 +1237,21 @@
   });
 
   els.epsInput.addEventListener('input', () => {
-    const v = Number(els.epsInput.value);
-    els.epsOut.textContent = v.toFixed(1) + '×';
+    const v = Number(els.epsInput.value) / 100;
+    els.epsOut.textContent = Math.round(v * 100) + '%';
     predictor.options.exploreScale = v;
     startRound();
   });
 
   els.exploreInput.addEventListener('change', () => {
     predictor.options.explore = els.exploreInput.checked;
+    syncParamDisabled();
     startRound();
   });
 
   els.autoInput.addEventListener('change', () => {
     const on = els.autoInput.checked;
-    els.alphaInput.disabled = on;
-    els.confInput.disabled = on;
-    els.epsInput.disabled = on;
-    els.hlInput.disabled = on;
+    syncParamDisabled();
     if (on) autoTuneStep();
     startRound();
   });
@@ -1072,11 +1261,10 @@
     els.autoInput.checked = true;
     els.exploreInput.checked = true;
     predictor.options.explore = true;
-    predictor.options.exploreScale = 1;
-    els.alphaInput.disabled = true;
-    els.confInput.disabled = true;
-    els.epsInput.disabled = true;
-    els.hlInput.disabled = true;
+    predictor.options.exploreScale = 0.1;
+    els.epsInput.value = '10';
+    els.epsOut.textContent = '10%';
+    syncParamDisabled();
     autoTuneStep();
     startRound();
   });
@@ -1102,12 +1290,33 @@
 
   /* ------------------------------ 启动 ------------------------------ */
 
+  /** 统一悬浮提示：把原生 title 转成自定义 data-tip（立即显示、样式一致） */
+  function initTooltips() {
+    const convert = (el) => {
+      if (!el.hasAttribute || !el.hasAttribute('title')) return;
+      const t = el.getAttribute('title');
+      el.removeAttribute('title');
+      if (t) el.setAttribute('data-tip', t);
+    };
+    document.querySelectorAll('[title]').forEach(convert);
+    new MutationObserver((muts) => {
+      for (const m of muts) {
+        if (m.type === 'attributes') { convert(m.target); continue; }
+        for (const n of m.addedNodes) {
+          if (n.nodeType !== 1) continue;
+          convert(n);
+          if (n.querySelectorAll) n.querySelectorAll('[title]').forEach(convert);
+        }
+      }
+    }).observe(document.body, {
+      childList: true, subtree: true, attributes: true, attributeFilter: ['title'],
+    });
+  }
+
+  initTooltips();
   renderScores();
   renderHistory();
-  els.alphaInput.disabled = els.autoInput.checked;
-  els.confInput.disabled = els.autoInput.checked;
-  els.epsInput.disabled = els.autoInput.checked;
-  els.hlInput.disabled = els.autoInput.checked;
+  syncParamDisabled();
   rebuildDecayModels();
   autoTuneStep();
   startRound();

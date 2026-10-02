@@ -121,6 +121,22 @@
   }
 
   /**
+   * 按概率分布随机取一招。
+   * 预测没有显著优于随机基准时，与其用 argmax 押一个「靠噪声排出来的最优招」（确定性函数，
+   * 排序一旦固定就会长期出同一招，极易被反制），不如按分布取样——仍是同一份预测，
+   * 但出招的边际分布等于预测分布，对手无法靠观察固定规律来针对。
+   */
+  function sampleProbs(p) {
+    const order = shuffled(MOVES);
+    let r = randFloat();
+    for (const m of order) {
+      r -= p[m];
+      if (r < 0) return m;
+    }
+    return order[order.length - 1];
+  }
+
+  /**
    * 单个「标准」（专家）。
    * source = 'freq' 整体频率 | 'self' 人类自身前 N 招 | 'opp' 对电脑前 N 招
    */
@@ -215,7 +231,7 @@
     constructor(N, options) {
       this.N = clamp(N | 0 || 3, 1, 8);
       this.options = Object.assign(
-        { alpha: 1, exploreScale: 1, explore: true, confidence: 1, halfLife: 16 },
+        { alpha: 1, exploreScale: 0.1, explore: true, confidence: 1, halfLife: 16 },
         options || {}
       );
       this.experts = [];
@@ -274,7 +290,7 @@
      * 决策：返回电脑出招与完整依据（供面板展示）。
      * confidenceOverride 可临时覆盖样本收缩强度（自动调参用它评估各档位的实际表现）。
      */
-    decide(history, confidenceOverride) {
+    decide(history, confidenceOverride, exploreOverride) {
       const breakdown = [];
       const acc = { R: 0, P: 0, S: 0 };
       let weightSum = 0;
@@ -357,6 +373,11 @@
         for (const it of breakdown) {
           if (it.matched) it.share = it.weight / weightSum;
         }
+      } else {
+        // 没有任何可信标准：本局只能靠随机基线出招，权重即 100%
+        for (const it of breakdown) {
+          if (it.baseline) it.share = 1;
+        }
       }
 
       // 探索：预测越不确定、历史应验越差，扰动越大（避免被人类反向利用）
@@ -372,12 +393,20 @@
       let epsilon = clamp(0.12 - globalAcc * 0.18, 0.02, 0.12);
       const maxP = Math.max(meta.R, meta.P, meta.S);
       if (maxP < 0.4) epsilon = clamp(epsilon + 0.05, 0.02, 0.18);
+      // 自适应扰动（应验差 / 预测不确定）
+      const adaptiveEps = epsilon;
       // 前期随机度：开局这几局证据不足，AI 就该更接近纯随机。
       // 少量样本给出的偏斜（"AI 总是出某个招"）太容易被人类摸清，
       // 随机度必须能压住它；对局数越多随机度越低，11 局左右回落到常规水平。
-      epsilon = Math.max(epsilon, clamp(1 - history.length * 0.09, 0.02, 1));
+      const earlyRand = clamp(1 - history.length * 0.09, 0.02, 1);
+      // 探索强度 = 保底纯随机概率（0~1）；自适应扰动更高时以更高者为准
+      const exploreScale = exploreOverride == null
+        ? Number(this.options.exploreScale) || 0
+        : Number(exploreOverride) || 0;
+      // ε 是否由「前期随机度」主导（供面板说明）
+      const earlyRandom = this.options.explore && earlyRand > Math.max(adaptiveEps, exploreScale);
       epsilon = this.options.explore
-        ? clamp(epsilon * this.options.exploreScale, 0, 1)
+        ? clamp(Math.max(epsilon, earlyRand, exploreScale), 0, 1)
         : 0;
 
       const final = {};
@@ -385,13 +414,24 @@
 
       // 决策：在综合分布上取期望收益最大的招（赢概率 − 输概率）
       const bestCpu = bestMove(meta);          // 不含探索的最优招
+      // 押注概率：AI 的预测是否已被证明显著优于随机基准（由主流程按预测命中率做显著性检验后写入）
+      const trust = clamp(Number(this.options.predictTrust) || 0, 0, 1);
       let cpuMove = bestCpu;
       let explore = false;
-      if (epsilon > 0 && randFloat() < epsilon) {
+      let sampled = false;
+      if (weightSum === 0) {
+        // 没有任何可信依据，谈不上「预测最优」，只能随机出招
+        cpuMove = MOVES[randInt(MOVES.length)];
+      } else if (epsilon > 0 && randFloat() < epsilon) {
         cpuMove = MOVES[randInt(MOVES.length)];
         explore = true;
+      } else if (randFloat() >= trust) {
+        // 预测还没有显著优于随机：不押注最优招，改按预测分布取样
+        cpuMove = sampleProbs(meta);
+        sampled = true;
       }
-      const target = VICTIM[bestCpu];         // 电脑按预测最优会击败的招（不含探索，用作命中率的尺子）
+      // 命中率的尺子 = AI 对你下一招的预测（只看预测准不准，与电脑实际出什么招、是否探索无关）
+      const target = argmaxProbs(meta);
 
       // 各参与标准的加权平均应验率（供自动调参与面板展示）
       let accSum = 0;
@@ -412,6 +452,12 @@
         breakdown,
         epsilon,
         explore,
+        sampled,                                // 本局是否「预测不显著 → 按分布取样」（未押注最优招）
+        trust,                                  // 本局的押注概率（0 = 从不押注，1 = 总是押注）
+        earlyRandom,                            // ε 是否由前期随机度主导
+        earlyRand,                              // 前期随机度数值（不受上限约束）
+        adaptiveEps,                            // 自适应扰动（不受上限约束）
+        exploreScale,                           // 探索强度档位（受上限约束）
         avgAcc: wSum > 0 ? accSum / wSum : 1 / 3,
         weightSum,                              // 归一化前总权重（0 = 没有任何可信标准）
         scores,                                 // 三招各自的期望收益（赢−输）
