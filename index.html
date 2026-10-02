@@ -27,22 +27,19 @@
         <span class="value cpu" id="cpuRate">0%</span>
       </div>
       <div class="score-item">
-        <span class="label">平局率</span>
-        <span class="value draw" id="drawRate">0%</span>
-      </div>
-      <div class="score-item">
         <span class="label">你的胜率</span>
         <span class="value human" id="humanRate">0%</span>
       </div>
       <div class="bar" aria-hidden="true">
         <span class="bar-seg cpu" id="barCpu"></span>
-        <span class="bar-seg draw" id="barDraw"></span>
         <span class="bar-seg human" id="barHuman"></span>
       </div>
       <div class="meta-line">
-        <span>对局 <b id="totalRounds">0</b></span>
-        <span>当前连势 <b id="streak">—</b></span>
-        <span>AI 预测命中率 <b id="hitRate">—</b></span>
+        <span title="已完成的对局总数">对局 <b id="totalRounds">0</b></span>
+        <span title="最近连续同一侧的胜负局数（平局会打断）">当前连势 <b id="streak">—</b></span>
+        <span title="平局局数占全部对局的百分比">平局率 <b id="drawRate">0%</b></span>
+        <span id="hitRateWrap" title="AI 预测命中率">AI 预测命中率 <b id="hitRate">—</b></span>
+        <span title="假设 AI 从不探索、始终按预测最优出招时的胜率">最优胜率 <b id="idealRate">—</b></span>
       </div>
     </div>
 
@@ -97,9 +94,13 @@
         <span class="hint">1 ~ 6，越高越关注长序列规律</span>
       </div>
       <div class="control-group right">
+        <button class="btn ghost" id="exportBtn" type="button">导出存档</button>
+        <button class="btn ghost" id="importBtn" type="button">导入存档</button>
         <button class="btn ghost" id="resetBtn" type="button">重置数据</button>
+        <button class="btn ghost" id="nistBtn" type="button">NIST 检测</button>
         <button class="btn primary" id="panelBtn" type="button">显示分析面板</button>
       </div>
+      <input type="file" id="importFile" accept=".rps,text/plain" hidden />
     </div>
 
     <div class="history card">
@@ -123,6 +124,17 @@
 
     <div class="forecast" id="forecast"></div>
 
+    <div class="rand" id="randomness"></div>
+
+    <div class="panel-tools">
+      <span class="tools-label">排序</span>
+      <div class="seg" id="sortSeg">
+        <button type="button" data-sort="weight" class="on">权重</button>
+        <button type="button" data-sort="acc">应验率</button>
+        <button type="button" data-sort="default">默认</button>
+      </div>
+    </div>
+
     <div class="table-wrap">
       <table class="criteria">
         <thead>
@@ -131,7 +143,7 @@
             <th>当前依据</th>
             <th>历史计数</th>
             <th>该标准预测</th>
-            <th>应验率</th>
+            <th>应验率 <span class="th-sub">vs 33%</span></th>
             <th>权重</th>
           </tr>
         </thead>
@@ -142,9 +154,24 @@
     <details class="params" id="params">
       <summary>策略参数</summary>
       <div class="param-row">
+        <label for="autoInput">自动调参</label>
+        <input type="checkbox" id="autoInput" checked />
+        <output></output>
+      </div>
+      <div class="param-row">
         <label for="alphaInput">平滑系数 α</label>
         <input type="range" id="alphaInput" min="0.2" max="3" step="0.1" value="1" />
         <output id="alphaOut">1.0</output>
+      </div>
+      <div class="param-row">
+        <label for="confInput">样本收缩</label>
+        <input type="range" id="confInput" min="0" max="3" step="0.1" value="1" />
+        <output id="confOut">1.0</output>
+      </div>
+      <div class="param-row">
+        <label for="hlInput">记忆半衰期</label>
+        <input type="range" id="hlInput" min="0" max="64" step="1" value="16" />
+        <output id="hlOut">20 局</output>
       </div>
       <div class="param-row">
         <label for="epsInput">探索强度</label>
@@ -156,11 +183,26 @@
         <input type="checkbox" id="exploreInput" checked />
         <output></output>
       </div>
-      <p class="param-hint">α 越小越激进地相信少量样本（更容易被针对性套路）；探索强度越高，AI 越难被反向利用，但主动失误也越多。</p>
+      <div class="conf-compare" id="confCompare"></div>
+      <div class="conf-compare" id="hlCompare"></div>
+      <button class="btn ghost param-reset" id="paramReset" type="button">恢复默认参数</button>
+      <p class="param-hint">α 越小越激进地相信少量样本；<b>样本收缩</b>越大，应验率会被折算得越保守（0 = 完全按应验率，越大越不信任小样本）；<b>记忆半衰期</b>越小，AI 越快忘掉旧习惯（0 = 不遗忘）；探索强度越高，AI 越难被反向利用，但主动失误也越多（开局几局会自动拉高随机度、约 11 局内回落，避免被你摸清规律）。开启「自动调参」后，这些参数均由对局数据自动调整：样本收缩与记忆半衰期都让各档位在同一批局面下各自出招，按实际电脑胜率择优（若「完全按应验率」或「不遗忘」更优，会自动退回）。</p>
     </details>
   </aside>
 </main>
 
+<div class="modal" id="nistModal" hidden>
+  <div class="modal-backdrop" id="nistBackdrop"></div>
+  <div class="modal-card">
+    <div class="modal-head">
+      <h2>NIST SP 800-22 随机性检测</h2>
+      <button class="close" id="nistClose" type="button" aria-label="关闭">×</button>
+    </div>
+    <div class="modal-body" id="nistBody"></div>
+  </div>
+</div>
+
+<script src="js/nist.js"></script>
 <script src="js/predictor.js"></script>
 <script src="js/main.js"></script>
 </body>
