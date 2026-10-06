@@ -1,5 +1,5 @@
 @charset "UTF-8";
-/* RPS-Duel · 样式 */
+/* RPS-AI · 样式 */
 :root {
   --bg: #151f40;
   --text: #dee3f2;        /* 主文本 */
@@ -20,17 +20,18 @@
   --gold: #ffd76a;
   --gold-soft: #ffd8a8;
   --radius: 22px;
-  --shadow: 0 20px 55px rgba(0, 0, 0, 0.5);
+  /* 仅弹窗使用：卡片不用外投影，否则卡片间 9~10px 的缝隙会被投影压成暗带 */
+  --shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
 }
 
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 
-html { height: 100%; scrollbar-gutter: stable; }
+html { height: 100%; }
 
 body {
   margin: 0;
-  min-height: 100%;
+  height: 100%;
   display: flex;
   flex-direction: column;
   background: var(--bg);
@@ -38,6 +39,7 @@ body {
   font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   overflow-x: hidden;
+  overflow-y: hidden;   /* 页面本身不出滚动条：纵向空间由各栏自己支配 */
 }
 
 /* ---------- 背景光晕 ---------- */
@@ -68,13 +70,14 @@ body {
 .topbar {
   position: relative;
   z-index: 1;
+  flex: 0 0 auto;
   text-align: center;
-  padding: 18px 20px 10px;
+  padding: clamp(4px, 0.9vh, 10px) 20px clamp(2px, 0.6vh, 6px);
 }
 .topbar h1 {
   margin: 0;
-  font-size: clamp(28px, 4vw, 44px);
-  letter-spacing: 6px;
+  font-size: clamp(21px, min(3.1vw, 3.6vh), 34px);
+  letter-spacing: 5px;
   font-weight: 800;
   background: linear-gradient(100deg, #fff 0%, #b9c4ff 40%, #ff9ec4 80%);
   -webkit-background-clip: text;
@@ -82,7 +85,7 @@ body {
   color: transparent;
 }
 .topbar h1 .dot { color: var(--accent); -webkit-text-fill-color: var(--accent); margin: 0 8px; }
-.tagline { margin: 6px 0 0; color: var(--muted); font-size: 14px; letter-spacing: 1px; }
+.tagline { margin: clamp(2px, 0.5vh, 4px) 0 0; color: var(--muted); font-size: 13px; letter-spacing: 1px; }
 
 /* ---------- 布局 ---------- */
 .layout {
@@ -91,12 +94,15 @@ body {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 348px;
   grid-template-areas: "game params";
+  /* 行高不超过容器：内容再高也不会把页面顶出去 */
+  grid-template-rows: minmax(0, 1fr);
   gap: 12px;
   flex: 1 1 auto;
+  min-height: 0;
   width: 100%;          /* 关键：交叉轴上的 margin:auto 会让它变成内容宽度，必须显式撑满 */
   max-width: 1320px;
   margin: 0 auto;
-  padding: 0 56px 32px;
+  padding: 0 56px clamp(6px, 1.6vh, 16px);
   transition: max-width 0.35s ease;
 }
 .layout > .game { grid-area: game; }
@@ -115,7 +121,12 @@ body {
 .game {
   display: flex;
   flex-direction: column;
+  /* 与左右栏间距（.layout 的 gap）保持一致 */
   gap: 12px;
+  min-height: 0;
+  /* 必须 visible：overflow:auto 会把卡片的金光裁在左栏里，照不到右栏去。
+     矮屏的滚动兜底见下面的 max-height 查询。 */
+  overflow: visible;
 }
 
 .card {
@@ -123,19 +134,25 @@ body {
   background: linear-gradient(160deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.06));
   border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: var(--radius);
-  box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.09);
+  /* 不要外投影：卡片间距只有 9~10px，投影会把缝隙压成暗带（层次靠描边 + 内高光区分） */
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.09);
   backdrop-filter: blur(16px);
 }
 /* 卡片因 backdrop-filter 各自形成层叠上下文，悬停时抬到最上，避免提示被相邻卡片遮住 */
 .card:hover { z-index: 5; }
+
+/* 极矮屏（真的放不下）才退回左栏内部滚动，此时金光被裁也无所谓 */
+@media (max-height: 767px) {
+  .game { overflow: auto; }
+}
 
 /* ---------- 记分板 ---------- */
 .scoreboard {
   display: grid;
   grid-template-columns: auto auto minmax(0, 1fr);
   align-items: start;
-  column-gap: 32px;
-  padding: 16px 24px;
+  column-gap: 30px;
+  padding: clamp(10px, 1.6vh, 16px) 22px;
 }
 .scoreboard > .score-item { display: flex; flex-direction: column; }
 .scoreboard > .bar { grid-column: 1 / -1; }
@@ -154,15 +171,15 @@ body {
 .score-records-top { display: flex; align-items: baseline; gap: 10px; }
 .sr-label { color: var(--muted); font-size: 12px; letter-spacing: 1px; }
 .score-item .label { color: var(--muted); font-size: 12px; letter-spacing: 1px; }
-.score-item .value { font-size: 34px; font-weight: 800; margin-top: 4px; }
+.score-item .value { font-size: clamp(22px, 3.2vh, 29px); font-weight: 800; margin-top: clamp(0px, 0.3vh, 2px); }
 .value.cpu { color: var(--cpu); }
 .value.human { color: var(--human); }
 .value.draw { color: var(--muted); }
 
 .bar {
   display: flex;
-  height: 10px;
-  margin: 14px 0 10px;
+  height: clamp(7px, 1vh, 9px);
+  margin: clamp(6px, 1.1vh, 10px) 0 clamp(4px, 0.9vh, 8px);
   border-radius: 999px;
   overflow: hidden;
   background: rgba(255, 255, 255, 0.07);
@@ -186,12 +203,18 @@ body {
 /* ---------- 对战区 ---------- */
 .arena {
   position: relative;
+  /* 吸收左栏剩余高度：左栏内容比右栏矮时靠它填平，保证两栏底边对齐 */
   flex: 1 1 auto;
-  justify-content: space-evenly;
-  padding: 16px 20px;
+  /* 不许被压到内容高度以下：矮屏时宁可让左栏出现内部滚动，也不能把出招按钮顶出卡片
+     （曾用 min-height:0，结果内容直接溢出到卡片外、盖住下面的卡片） */
+  min-height: min-content;
+  /* 富余空间集中到两端（居中排列），不要平摊到每个元素之间 ——
+     否则“选择你的出招”这类单行提示上下会各被撑出一大块空当 */
+  justify-content: center;
+  padding: clamp(10px, 1.3vh, 13px) 18px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: clamp(7px, 1.4vh, 14px);
 }
 /* 存档 / 工具按钮：停靠在对战区左上角，做成一块小工具栏 */
 .arena-tools {
@@ -240,7 +263,8 @@ body {
   color: #fff;
   box-shadow: 0 9px 24px rgba(123, 108, 255, 0.48);
 }
-.combatant { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+/* 「称谓行 ↔ 图案/出招按钮」的间距：比 4~5px 的常规 gap 更宽松，否则标签像贴在按钮上 */
+.combatant { display: flex; flex-direction: column; align-items: center; gap: clamp(12px, 1.5vh, 16px); }
 .who {
   display: flex;
   align-items: center;
@@ -252,8 +276,10 @@ body {
 .avatar {
   display: grid;
   place-items: center;
-  width: 30px; height: 30px;
-  border-radius: 10px;
+  /* 与右侧 .tag 共用同一套内边距与字号 → 两者自然等高（不要再单独给 height） */
+  min-width: clamp(32px, 3.6vh, 40px);
+  padding: 3px 10px;
+  border-radius: 999px;
   font-size: 12px;
   font-weight: 800;
   color: var(--text-strong);
@@ -271,12 +297,12 @@ body {
 .move-slot {
   display: grid;
   place-items: center;
-  width: 128px; height: 128px;
-  border-radius: 26px;
+  width: clamp(96px, 13.4vh, 152px); height: clamp(96px, 13.4vh, 152px);
+  border-radius: clamp(16px, 2.8vh, 30px);
   background: radial-gradient(circle at 50% 28%, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.06));
   border: 1px solid rgba(255, 255, 255, 0.14);
 }
-.move-slot .glyph { font-size: 62px; line-height: 1; }
+.move-slot .glyph { font-size: clamp(54px, 7.4vh, 84px); line-height: 1; }
 .move-slot .glyph.unknown { color: var(--text-2); font-weight: 800; animation: pulse 1.6s ease-in-out infinite; }
 .move-slot.reveal { animation: pop 0.42s cubic-bezier(0.34, 1.56, 0.64, 1); border-color: rgba(255, 107, 129, 0.5); }
 
@@ -284,11 +310,15 @@ body {
 @keyframes pop { 0% { transform: scale(0.82); } 100% { transform: scale(1); } }
 
 .result-banner {
+  /* 宽度随内容（不再拉满整行），做成居中的小胶囊；上下留白收窄，左右留够 */
+  align-self: center;
   text-align: center;
-  font-size: 20px;
+  /* 固定一个下限，让「你赢了 / 电脑赢了 / 平局」这些长短不一的文案占同样大的一块底色 */
+  min-width: clamp(152px, 19vh, 200px);
+  font-size: clamp(14px, 2vh, 18px);
   font-weight: 800;
   letter-spacing: 2px;
-  padding: 10px;
+  padding: clamp(4px, 0.7vh, 7px) clamp(22px, 2.8vh, 32px);
   color: var(--muted);
   border-radius: 14px;
   transition: all 0.25s ease;
@@ -315,60 +345,127 @@ body {
   transition: opacity 0.25s ease, transform 0.25s ease;
 }
 .last-cpu.show { opacity: 1; transform: translateY(-50%) scale(1); }
-.last-cpu .glyph { font-size: 32px; line-height: 1; }
+.last-cpu .glyph { font-size: 40px; line-height: 1; }
 
 .choice .badge {
   position: absolute;
-  right: 8px;
-  bottom: 8px;
+  /* 外挂偏移按“墨迹半径”留量：图案字形比字号宽高约 10%，小偏移会被墨迹压住 */
+  right: -8px;
+  bottom: -6px;
+  z-index: 2;
   display: grid;
   place-items: center;
-  min-width: 24px;
-  height: 22px;
-  padding: 0 7px;
+  min-width: 26px;
+  height: 24px;
+  padding: 0 8px;
   border-radius: 999px;
-  font-size: 12px;
+  font-size: 13.5px;
   font-weight: 800;
-  letter-spacing: 1px;
+  letter-spacing: 0;
   opacity: 0;
   transform: scale(0.7);
   transition: opacity 0.2s ease, transform 0.2s ease;
 }
 .choice .badge.show { opacity: 1; transform: scale(1); }
-.choice .badge.win { color: var(--human); background: rgba(55, 214, 163, 0.16); box-shadow: 0 0 0 1px rgba(55, 214, 163, 0.45); }
-.choice .badge.draw { color: var(--text-2); background: rgba(255, 255, 255, 0.1); box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.2); }
-.choice .badge.lose { color: var(--cpu); background: rgba(255, 107, 129, 0.16); box-shadow: 0 0 0 1px rgba(255, 107, 129, 0.45); }
+/* 改用实色：徐标会叠在背景上，半透明会透出底下的图案线条 */
+.choice .badge.win { color: #05251c; background: rgba(18, 184, 134, 0.95); box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35); }
+.choice .badge.draw { color: #0d1526; background: rgba(150, 158, 182, 0.95); box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35); }
+.choice .badge.lose { color: #2b0910; background: rgba(255, 96, 120, 0.95); box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35); }
+/* 右下角这个胜负角标太隐晦（用户看不懂那是什么），给个说法：悬浮时在角标正上方弹出。
+   文案由 renderLast() 写进 data-tip（写明是上一局的哪一招、结果如何）。
+   角标本身已在按钮右下角，提示若按全局规则从 left:0 向右展开，第三颗按钮那里会顶出右边界，
+   这里改成水平居中于角标；提示比按钮宽、会画到按钮外面，所以还得把带角标的这颗按钮
+   抬高一层 —— 否则 .picked 的 transform / .pick 的 hover 缩放会把提示关在按钮自己的
+   堆叠上下文里，被后面的按钮盖住。
+   角标没显示时（opacity:0）不该出提示，故对其屏蔽指针事件（不挡按钮自身的悬停）。 */
+.choices .choice:has(.badge.show),
+.pick-row .pick:has(.badge.show) { z-index: 3; }
+:is(.choice, .pick) .badge:not(.show) { pointer-events: none; }
+:is(.choice, .pick) .badge[data-tip]:hover::after {
+  left: 50%;
+  top: auto;
+  bottom: calc(100% + 8px);
+  max-width: 200px;
+  text-align: center;
+  transform: translateX(-50%);
+}
 
 /* ---------- 选择按钮 ---------- */
-.choices { display: flex; gap: 16px; flex-wrap: wrap; justify-content: center; }
+.choices { display: flex; gap: clamp(12px, 2vh, 20px); flex-wrap: wrap; justify-content: center; }
 .choice {
   position: relative;
-  width: 128px;
-  padding: 16px 10px 14px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
+  /* 纯图标方块：文字已省略（图标本身就看得懂），省下的空间给图标 */
+  width: clamp(76px, 11vh, 126px);
+  height: clamp(76px, 11vh, 126px);
+  padding: 0;
+  display: grid;
+  place-items: center;
   cursor: pointer;
-  color: var(--text);
+  color: var(--text-strong);
   font-family: inherit;
-  background: linear-gradient(160deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.08));
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 20px;
-  transition: transform 0.18s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.09));
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 22px;
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.25s ease, border-color 0.25s ease, background 0.25s ease;
 }
-.choice .glyph { font-size: 40px; line-height: 1; }
-.choice .name { font-size: 15px; font-weight: 700; letter-spacing: 2px; }
-.choice:hover { transform: translateY(-5px); border-color: rgba(123, 108, 255, 0.65); box-shadow: 0 14px 34px rgba(123, 108, 255, 0.28); }
-.choice:active { transform: translateY(-1px) scale(0.98); }
+.choice .glyph { font-size: clamp(44px, 6.2vh, 70px); line-height: 1; }
+/* 悬浮：原地放大 + 绿光晕（用我方色 --human，和「出招后高亮 / 焦点环」同一套绿系；
+   原先借用的是面板强调紫 rgba(123,108,255)，落在出招按钮上会跟绿色高亮打架）。
+   不用向上位移 —— 位移会打破三颗按钮的基线，也让上方空隙突变。 */
+.choice:hover {
+  transform: scale(1.06);
+  border-color: rgba(99, 230, 190, 0.8);
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.3), rgba(255, 255, 255, 0.14));
+  box-shadow: 0 0 0 3px rgba(55, 214, 163, 0.18), 0 16px 38px rgba(55, 214, 163, 0.32);
+}
+.choice:active { transform: scale(0.97); }
+
+/* ---------- emoji 视觉居中修正（按质心对齐） ----------
+   flex/grid 居中的是 emoji 的「字框」，而人眼对齐的是图形自身的「重心」。
+   下面的位移由 canvas 实测得出：先算不透明像素的 alpha 加权质心，再与字框中心求差（以 1em 为基准）。
+   三个图案的重心各自不同（✊ 偏下最多，✋/✌️ 还被斜向的手势拉偏了水平重心）。 */
+.choice[data-move="R"] .glyph, .pick[data-move="R"] i, .glyph[data-move="R"] { transform: translate(-0.008em, -0.129em); }
+.choice[data-move="P"] .glyph, .pick[data-move="P"] i, .glyph[data-move="P"] { transform: translate(0.071em, -0.055em); }
+.choice[data-move="S"] .glyph, .pick[data-move="S"] i, .glyph[data-move="S"] { transform: translate(-0.031em, -0.067em); }
+/* 补录按钮小得多（字号 ~25px），小字号下字形渲染偏移与大按钮不同（hinting 差异），
+   实测偏上约 6%，这里单独校准 —— 放在后面覆盖上面的通用值。 */
+.pick[data-move="R"] i { transform: translate(-0.008em, -0.019em); }
+.pick[data-move="P"] i { transform: translate(0.071em, 0.055em); }
+.pick[data-move="S"] i { transform: translate(-0.031em, 0.043em); }
+/* 我方本轮出的那一招：略放大 + 绿色发光（対战模式就到这里，不上炫技） */
 .choice.picked {
-  border-color: var(--human);
-  box-shadow: 0 0 0 3px rgba(55, 214, 163, 0.22), 0 14px 34px rgba(55, 214, 163, 0.25);
-  transform: translateY(-4px);
+  transform: scale(1.04);
+  border-color: rgba(99, 230, 190, 0.9);
+  background: linear-gradient(160deg, rgba(99, 230, 190, 0.22), rgba(18, 184, 134, 0.11));
+  box-shadow: 0 0 0 3px rgba(55, 214, 163, 0.22), 0 14px 34px rgba(55, 214, 163, 0.28);
+}
+/* ── 辅助模式：「AI 推荐」那一招恒带呼吸与图标辉光（不要旋转光带、也不要文字标记）。
+   注意这套效果属于「推荐」而非「我方选择」—— 玩家改选别的招时，它留在推荐上不动；
+   无依据（随机出招）时不算推荐，JS 不会加这个类。 ── */
+.arena[data-mode="assist"] .choice.advised {
+  border-color: rgba(99, 230, 190, 0.9);
+  background: linear-gradient(160deg, rgba(99, 230, 190, 0.22), rgba(18, 184, 134, 0.11));
+  animation: pickedGlow 2.4s ease-in-out infinite, pickedBreath 2.4s ease-in-out infinite;
+}
+.arena[data-mode="assist"] .choice.advised .glyph { filter: drop-shadow(0 0 10px rgba(99, 230, 190, 0.85)); }
+/* 改选其他招时，那一招只用 .picked 的朴实选中效果（上面基础规则已定义），不抢推荐的戏 */
+@keyframes pickedBreath {
+  0%, 100% { transform: scale(1.04); }
+  50% { transform: scale(1.065); }
+}
+@keyframes pickedGlow {
+  0%, 100% { box-shadow: 0 0 0 2px rgba(55, 214, 163, 0.3), 0 0 16px rgba(55, 214, 163, 0.28); }
+  50% { box-shadow: 0 0 0 4px rgba(55, 214, 163, 0.5), 0 0 34px rgba(55, 214, 163, 0.6); }
 }
 .choices.locked .choice { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
 .choices.locked .choice:hover { transform: none; box-shadow: none; border-color: var(--line); }
-.choices.locked .choice.picked { opacity: 1; }
+.choices.locked .choice.picked {
+  opacity: 1;
+  transform: scale(1.04);
+  border-color: rgba(99, 230, 190, 0.9);
+  background: linear-gradient(160deg, rgba(99, 230, 190, 0.22), rgba(18, 184, 134, 0.11));
+  box-shadow: 0 0 0 3px rgba(55, 214, 163, 0.22), 0 14px 34px rgba(55, 214, 163, 0.28);
+}
 
 /* ---------- 控制区 ---------- */
 .btn {
@@ -428,10 +525,10 @@ body {
 .fc-note { margin-top: 4px; font-size: 11px; line-height: 1.45; min-height: 1.45em; color: var(--muted); }
 
 .fc-alert { margin-top: 6px; padding: 6px 10px; border-radius: 10px; font-size: 12px; line-height: 1.5; color: var(--gold-soft); background: rgba(255, 176, 32, 0.12); border: 1px solid rgba(255, 176, 32, 0.28); }
-.conf-compare { margin-top: 16px; }
-.cmp-title { font-size: 11.5px; color: var(--text-3); letter-spacing: 0.5px; margin-bottom: 5px; }
+.conf-compare { margin-top: clamp(11px, 1.9vh, 18px); }
+.cmp-title { font-size: 11.5px; color: var(--text-3); letter-spacing: 0.5px; margin-bottom: clamp(2px, 0.6vh, 5px); }
 .cmp-sub { color: var(--faint); margin-left: 6px; }
-.cmp-row { display: grid; grid-template-columns: 48px 1fr 38px; align-items: center; gap: 6px; padding: 1.5px 0; font-size: 11.5px; color: var(--muted); }
+.cmp-row { display: grid; grid-template-columns: 48px 1fr 38px; align-items: center; gap: 6px; padding: clamp(0.5px, 0.18vh, 2px) 0; font-size: clamp(11px, 1.32vh, 11.5px); color: var(--muted); }
 .cmp-k { text-align: right; color: var(--text-3); white-space: nowrap; }
 .cmp-track { height: 5px; border-radius: 999px; background: rgba(255, 255, 255, 0.08); overflow: hidden; }
 .cmp-track i { display: block; height: 100%; background: rgba(255, 255, 255, 0.3); }
@@ -440,7 +537,7 @@ body {
 .cmp-row.on .cmp-k { color: var(--accent-soft); }
 .cmp-row.on .cmp-track i { background: linear-gradient(90deg, #7b6cff, #ff6bcb); }
 .cmp-row.on .cmp-v { font-weight: 600; }
-.exp-row { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 1.5px 0; font-size: 11.5px; color: var(--muted); }
+.exp-row { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: clamp(0.5px, 0.18vh, 2px) 0; font-size: clamp(11px, 1.32vh, 11.5px); color: var(--muted); }
 .exp-row b { color: var(--text-2); font-weight: 600; font-variant-numeric: tabular-nums; }
 /* 参数面板可滚动，向下弹的提示会在底部被裁：数据行的提示统一向上弹 */
 .exp-row[data-tip]:hover::after { top: auto; bottom: calc(100% + 6px); }
@@ -450,25 +547,32 @@ body {
 .fc-ev-chip { flex: 1 1 0; display: flex; align-items: center; justify-content: center; gap: 4px; padding: 4px 5px; border-radius: 8px; font-size: 11.5px; color: var(--muted); background: rgba(255, 255, 255, 0.05); font-variant-numeric: tabular-nums; }
 .fc-ev-chip i { font-style: normal; font-size: 13.5px; line-height: 1; }
 .fc-ev-chip.on { color: var(--accent-soft); font-weight: 600; background: rgba(123, 108, 255, 0.2); box-shadow: inset 0 0 0 1px rgba(123, 108, 255, 0.45); }
-.rand { margin: 10px 0 14px; padding: 10px 12px; border-radius: 14px; background: rgba(255, 255, 255, 0.045); border: 1px solid var(--line); }
-.rand-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; font-size: 13px; color: var(--text-3); letter-spacing: 1px; }
-.rand-score { font-size: 20px; font-weight: 700; color: var(--accent-soft); font-variant-numeric: tabular-nums; }
+/* 这张卡片里只有它一个内容块，不需要“卡中卡”：内层只当内容容器，四边留白交给卡片自己的 padding */
+.rand { margin: 0; padding: 0; border: 0; background: none; }
+.rand-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; font-size: clamp(12px, 1.5vh, 13px); color: var(--text-3); letter-spacing: 1px; }
+.rand-score { font-size: clamp(17px, 2.2vh, 20px); font-weight: 700; color: var(--accent-soft); font-variant-numeric: tabular-nums; }
 .rand-score i { font-size: 11px; font-style: normal; font-weight: 400; color: var(--muted); }
 
-/* 评分 > 100（比随机基准还难预测）：金色发光 + 流光扫过 */
-.rand.over {
+/* 评分 > 100（比随机基准还难预测）：金色发光 + 流光扫过（直接挂在整张卡片上） */
+.rand-card:has(.rand.over) {
+  /* 提到参数栏之上：金光要能照过去（grid 里后绘制的栏目会盖住前一个的溢出） */
+  z-index: 6;
   border-color: rgba(255, 199, 79, calc(0.45 + 0.5 * var(--rand-power, 0)));
-  box-shadow: 0 0 0 1px rgba(255, 199, 79, calc(0.22 + 0.5 * var(--rand-power, 0))),
-    0 0 calc(18px + 46px * var(--rand-power, 0)) rgba(255, 159, 67, calc(0.3 + 0.5 * var(--rand-power, 0)));
-  position: relative;
-  overflow: hidden;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.09),
+    0 0 0 1px rgba(255, 199, 79, calc(0.22 + 0.5 * var(--rand-power, 0))),
+    /* 半径要足够大：跨过左右栏 12px 的间距，照到参数栏上去 */
+    0 0 calc(26px + 86px * var(--rand-power, 0)) rgba(255, 159, 67, calc(0.3 + 0.5 * var(--rand-power, 0)));
+  /* 这里不能加 overflow:hidden —— 会把卡片向外的金光一起裁掉；
+     流光改用 background-position 动画，伪元素自身不位移，就不需要裁了。 */
 }
-.rand.over::after {
+.rand-card:has(.rand.over)::after {
   content: '';
   position: absolute;
   inset: 0;
+  border-radius: inherit;
   background: linear-gradient(105deg, transparent 33%, rgba(255, 219, 130, calc(0.14 + 0.34 * var(--rand-power, 0))) 50%, transparent 67%);
-  transform: translateX(-100%);
+  background-size: 220% 100%;
+  background-repeat: no-repeat;
   animation: randSweep calc(3s - 2.2s * var(--rand-power, 0)) ease-in-out infinite;
   pointer-events: none;
 }
@@ -480,34 +584,34 @@ body {
 .rand-score.over i { text-shadow: none; animation: none; }
 .rand.over .rand-bar i { background: linear-gradient(90deg, var(--gold), #ff9f43); }
 /* 致死量：140 分以上（理论上限 150） */
-.rand.max { border-color: var(--gold-soft); animation: randMax 1.5s ease-in-out infinite; }
-.rand.max::after { animation-duration: 0.9s; }
+.rand-card:has(.rand.max) { z-index: 6; border-color: var(--gold-soft); animation: randMax 1.5s ease-in-out infinite; }
+.rand-card:has(.rand.max)::after { animation-duration: 0.9s; }
 .rand.max .rand-score { transform: scale(1.07); }
 @keyframes randMax {
-  0%, 100% { box-shadow: 0 0 0 1px rgba(255, 226, 138, 0.7), 0 0 34px rgba(255, 159, 67, 0.6), 0 0 72px rgba(255, 120, 60, 0.35); }
-  50% { box-shadow: 0 0 0 1px rgba(255, 240, 190, 0.95), 0 0 56px rgba(255, 180, 80, 0.85), 0 0 116px rgba(255, 120, 60, 0.6); }
+  0%, 100% { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.09), 0 0 0 1px rgba(255, 226, 138, 0.7), 0 0 46px rgba(255, 159, 67, 0.6), 0 0 100px rgba(255, 120, 60, 0.35); }
+  50% { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.09), 0 0 0 1px rgba(255, 240, 190, 0.95), 0 0 76px rgba(255, 180, 80, 0.85), 0 0 160px rgba(255, 120, 60, 0.6); }
 }
 @keyframes randGlow {
   0%, 100% { text-shadow: 0 0 6px rgba(255, 199, 79, 0.55), 0 0 14px rgba(255, 159, 67, 0.3); }
   50% { text-shadow: 0 0 12px rgba(255, 219, 130, 0.95), 0 0 26px rgba(255, 159, 67, 0.55); }
 }
 @keyframes randSweep {
-  0% { transform: translateX(-100%); }
-  60%, 100% { transform: translateX(100%); }
+  0% { background-position: 0% 0; }
+  60%, 100% { background-position: 100% 0; }
 }
-.rand-bar { margin-top: 6px; height: 6px; border-radius: 999px; background: rgba(255, 255, 255, 0.08); overflow: hidden; }
+.rand-bar { margin-top: clamp(4px, 0.7vh, 6px); height: clamp(5px, 0.7vh, 6px); border-radius: 999px; background: rgba(255, 255, 255, 0.08); overflow: hidden; }
 .rand-bar i { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, #37d6a3, #7b6cff); }
-.rand-rows { margin-top: 5px; display: grid; gap: 3px; }
-.rand-row { display: flex; align-items: baseline; gap: 10px; font-size: 12px; min-height: 1.6em; }
+.rand-rows { margin-top: clamp(3px, 0.6vh, 5px); display: grid; gap: 3px; }
+.rand-row { display: flex; align-items: baseline; gap: 10px; font-size: clamp(11px, 1.35vh, 12px); min-height: 1.6em; }
 .rand-name { flex: 0 0 auto; white-space: nowrap; color: var(--text-2); }
 .rand-val { flex: 1 1 auto; text-align: right; color: var(--text); font-variant-numeric: tabular-nums; }
 .rand-val b { font-weight: 500; }
 /* 命中率 vs 随机基准 33% 的对比条 */
 .rand-cmp { margin: 1px 0 3px; }
-.rand-cmp-track { position: relative; height: 8px; border-radius: 999px; background: rgba(255, 255, 255, 0.08); }
+.rand-cmp-track { position: relative; height: clamp(7px, 0.9vh, 8px); border-radius: 999px; background: rgba(255, 255, 255, 0.08); }
 .rand-cmp-track i { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, #7b6cff, #37d6a3); }
 .rand-cmp-track u { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--gold); transform: translateX(-1px); }
-.rand-cmp-legend { position: relative; height: 14px; margin-top: 3px; font-size: 10.5px; color: var(--muted); }
+.rand-cmp-legend { position: relative; height: clamp(12px, 1.6vh, 14px); margin-top: 3px; font-size: 10.5px; color: var(--muted); }
 .rand-cmp-legend .l0 { position: absolute; left: 0; }
 .rand-cmp-legend .l100 { position: absolute; right: 0; }
 .rand-cmp-legend .lbase { position: absolute; left: 33.333%; transform: translateX(-50%); color: var(--gold); white-space: nowrap; }
@@ -518,13 +622,14 @@ body {
 .rand-sub { flex: 0 0 auto; font-size: 11px; color: var(--muted); }
 /* 评语（独立于下方技术口径说明） */
 .rand-verdict {
-  margin-top: 8px;
-  padding: 6px 10px;
+  margin-top: clamp(4px, 0.7vh, 6px);
+  /* 上下留白向左右看齐（但文字块左右仍略宽一点）：两侧差一倍会显得上下“贴边” */
+  padding: clamp(7px, 0.9vh, 9px) clamp(10px, 1.2vh, 12px);
   min-height: 1.6em;
-  border-radius: 10px;
+  border-radius: 8px;
   border-left: 2px solid rgba(255, 255, 255, 0.22);
   background: rgba(255, 255, 255, 0.05);
-  font-size: 12.5px;
+  font-size: clamp(11.5px, 1.4vh, 12.5px);
   line-height: 1.6;
   color: var(--text-2);
 }
@@ -533,7 +638,7 @@ body {
   background: rgba(255, 176, 32, 0.1);
   color: var(--gold-soft);
 }
-.rand-note { margin-top: 5px; font-size: 11px; line-height: 1.6; min-height: 3.2em; color: var(--muted); }
+.rand-note { margin-top: clamp(3px, 0.6vh, 5px); font-size: clamp(10px, 1.25vh, 11px); line-height: 1.6; min-height: 3.2em; color: var(--muted); }
 .rand-empty { margin-top: 8px; font-size: 12px; color: var(--muted); }
 .modal { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; padding: 22px; }
 .modal[hidden] { display: none; }
@@ -630,19 +735,24 @@ table.criteria tr.dim { opacity: 0.45; }
 /* 色块靠右排列，提示向左展开才不会超出卡片 */
 .records .rec:hover::after { left: auto; right: 0; max-width: 220px; }
 
-/* 左侧：人类不可预测性评估 */
-.rand-card { padding: 12px 16px 14px; }
-.rand-card .rand { margin: 0; padding: 8px 10px; }
+/* 左侧：不可预测性评估 */
+/* 左右留白明显大于上下：文字行距本身自带垂直留白，四周等宽会显得“挤在中间” */
+.rand-card { padding: clamp(12px, 1.35vh, 15px) clamp(22px, 2.3vh, 26px); }
 
-.panel::-webkit-scrollbar, .records::-webkit-scrollbar { width: 8px; height: 6px; }
-.panel::-webkit-scrollbar-track, .records::-webkit-scrollbar-track { background: transparent; }
-.panel::-webkit-scrollbar-thumb, .records::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.14);
-  border-radius: 999px;
-}
-.panel::-webkit-scrollbar-thumb:hover, .records::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.26);
-}
+/* 所有滚动区一律不显示滚动条（内容仍可用滚轮 / 触控板 / 键盘滚动）：
+   细滚动条虽然比系统默认好看，但扣在深色玻璃卡片上依然是多余的视觉噪音 */
+html,
+.panel,
+.game,
+.params,
+.modal-body,
+.table-wrap { scrollbar-width: none; -ms-overflow-style: none; }
+html::-webkit-scrollbar,
+.panel::-webkit-scrollbar,
+.game::-webkit-scrollbar,
+.params::-webkit-scrollbar,
+.modal-body::-webkit-scrollbar,
+.table-wrap::-webkit-scrollbar { width: 0; height: 0; }
 
 /* ---------- 策略参数 ---------- */
 .params {
@@ -650,9 +760,9 @@ table.criteria tr.dim { opacity: 0.45; }
   flex-direction: column;
   min-height: 0;     /* 允许被压到所在行高以内（否则内容会撑高整行） */
   overflow: auto;    /* 内容超高时在栏内滚动，保证与左栏严格等高 */
-  padding: 18px 20px 20px;
+  padding: clamp(13px, 2vh, 20px) 20px clamp(14px, 2.2vh, 22px);
 }
-.params-title { position: relative; margin: 0 0 8px; display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; letter-spacing: 2px; color: var(--muted); }
+.params-title { position: relative; margin: 0 0 clamp(4px, 0.9vh, 8px); display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; letter-spacing: 2px; color: var(--muted); }
 .params-help {
   display: inline-flex;
   align-items: center;
@@ -709,7 +819,7 @@ table.criteria tr.dim { opacity: 0.45; }
   grid-template-columns: 88px 1fr 46px;
   align-items: center;
   gap: 10px;
-  margin-top: 14px;
+  margin-top: clamp(8px, 1.5vh, 14px);
   font-size: 12.5px;
   color: var(--text-2);
 }
@@ -743,15 +853,75 @@ table.criteria tr.dim { opacity: 0.45; }
 
 /* ---------- 响应式 ---------- */
 @media (max-width: 1650px) {
+  /* 面板模式必须保持“三列同一行”：一旦让面板换到下一行，页面高度锁死的情况下
+     新行会被面板内容撑高，把对战区压扁（曾出现 arena 只剩 24px 高、页面溢出）。
+     所以这里只收窄面板与参数栏，不放行到下一行。 */
   .layout.with-panel {
-    max-width: 1320px;
-    grid-template-columns: minmax(0, 1fr) 344px;
-    grid-template-areas: "game params" "panel panel";
+    max-width: 100%;
+    grid-template-columns: minmax(0, 1fr) 430px 320px;
+    grid-template-areas: "game panel params";
   }
-  .panel-slot { position: static; }
-  .panel-slot > .panel { position: static; overflow: visible; }
+  /* 面板模式下左栏只有 ~500px 宽：卡片里的内容会换行、变高，而可用高度不变。这里把工具栏收窄，
+     不让它和居中的“补录”按钮叠在一起（尺寸收紧见下面的高度分档）。 */
+  .layout.with-panel .arena-tools { width: 92px; padding: 5px; }
+  .layout.with-panel .arena-tools .btn { padding: 5px 3px; font-size: 10.5px; letter-spacing: 0; }
 }
-@media (max-width: 1180px) {
+
+/* 高度不够时收紧对战区：这些尺寸原先只按宽度分档，结果常见笔记本高度（768~900）放不下内容，
+   出招按钮会溢出卡片。高度不足就整体缩一档，图案按钮随之变小 —— 宁可按钮小一点也不要溢出。 */
+@media (max-height: 1000px) {
+  /* 注意：主角尺寸（.move-slot / .choice）不在这里改 —— 它们由 vh 自动缩放，
+     屏幕高就给得多。这里只处理纯高度开销（间距、统计卡），面板模式另收一档。 */
+  .arena { gap: clamp(5px, 1.1vh, 11px); padding: clamp(10px, 1.3vh, 13px) 18px; }
+  .result-banner { padding: clamp(3px, 0.6vh, 6px) clamp(20px, 2.4vh, 28px); font-size: clamp(13px, 1.9vh, 17px); }
+  .rand-card { padding: clamp(9px, 1.15vh, 12px) clamp(18px, 2.1vh, 24px); }
+  .fc-row { margin: 1px 0; }
+  .fc-target,
+  .fc-note { margin-top: 2px; }
+  .fc-ev { min-height: 42px; margin-top: 4px; padding-top: 4px; }
+  /* 面板模式左栏更窄（~465px），内容换行更高 → 再紧一档 */
+  .layout.with-panel .arena { gap: clamp(4px, 0.9vh, 10px); padding: clamp(10px, 1.2vh, 13px) 14px; }
+  .layout.with-panel .move-slot { width: clamp(70px, 10.4vh, 126px); height: clamp(70px, 10.4vh, 126px); }
+  .layout.with-panel .move-slot .glyph { font-size: clamp(44px, 6.4vh, 70px); }
+  .layout.with-panel .choice { width: clamp(56px, 8.4vh, 100px); height: clamp(56px, 8.4vh, 100px); }
+  .layout.with-panel .choice .glyph { font-size: clamp(36px, 5.2vh, 58px); }
+  .layout.with-panel .pick { width: clamp(46px, 5.6vh, 58px); height: clamp(46px, 5.6vh, 58px); }
+  .layout.with-panel .pick i { font-size: clamp(24px, 3vh, 32px); }
+  /* 左栏窄时补录按钮组会被推到工具栏正下方，左侧标签“对手出了”会压住工具栏按钮；
+     该信息在上方 who 行（“等对手出招后补录”）里已有，这里直接省掉。 */
+  .layout.with-panel .pick-row .pick-label { display: none; }
+}
+
+@media (min-height: 1000px) {
+  /* 大屏空间充裕：主角就该大一号，不必跟矮屏共用同一套系数 */
+  .move-slot { width: clamp(140px, 17vh, 200px); height: clamp(140px, 17vh, 200px); }
+  .move-slot .glyph { font-size: clamp(76px, 9.4vh, 108px); }
+  .choice { width: clamp(115px, 14vh, 165px); height: clamp(115px, 14vh, 165px); }
+  .choice .glyph { font-size: clamp(64px, 8vh, 92px); }
+  /* 面板模式左栏更窄、还多一行补录按钮 → 略收一档 */
+  .layout.with-panel .move-slot { width: clamp(126px, 15vh, 180px); height: clamp(126px, 15vh, 180px); }
+  .layout.with-panel .move-slot .glyph { font-size: clamp(70px, 8.4vh, 98px); }
+  .layout.with-panel .choice { width: clamp(104px, 12.4vh, 148px); height: clamp(104px, 12.4vh, 148px); }
+  .layout.with-panel .choice .glyph { font-size: clamp(58px, 7.2vh, 84px); }
+}
+
+@media (max-height: 820px) {
+  /* 尺寸已由上面的高度档统一收放，这里只压那些“配角”文本，给主角腾地方 */
+  .avatar { padding: 2px 9px; font-size: 11.5px; }
+  .who { gap: 9px; font-size: 13px; }
+  .tag { padding: 2px 9px; font-size: 11.5px; }
+  /* 「选择你的出招」是这一步的操作指引，不能因为要腾地方就压到看不清 */
+  .result-banner { padding: clamp(3px, 0.5vh, 5px) clamp(18px, 2.2vh, 26px); font-size: clamp(13px, 1.7vh, 16px); letter-spacing: 1px; }
+  .pick { width: clamp(32px, 4vh, 42px); height: clamp(32px, 4vh, 42px); }
+  .pick i { font-size: clamp(17px, 2.2vh, 23px); }
+  .rand-note { min-height: 1.6em; }
+  .layout.with-panel .arena { gap: clamp(4px, 0.7vh, 9px); padding: clamp(10px, 1.2vh, 13px) 14px; }
+}
+@media (max-width: 1300px) {
+  /* 三列放不下的窄屏：退回单列堆叠，并解除页面高度锁定（不再强制“不出滚动条”），
+     否则内容会被裁掉（既看不到也滚不到）。 */
+  html, body { height: auto; }
+  body { overflow-y: auto; }
   .layout,
   .layout.with-panel {
     max-width: 900px;
@@ -767,10 +937,10 @@ table.criteria tr.dim { opacity: 0.45; }
   .score-item .value { font-size: 24px; }
 }
 @media (max-width: 560px) {
-  .choice { width: 100px; padding: 14px 6px 12px; }
+  .choice { width: 82px; height: 82px; }
   .last-cpu { width: 54px; height: 54px; left: calc(100% + 12px); }
-  .last-cpu .glyph { font-size: 26px; }
-  .choice .glyph { font-size: 32px; }
+  .last-cpu .glyph { font-size: 32px; }
+  .choice .glyph { font-size: 42px; }
   .move-slot { width: 108px; height: 108px; }
   .move-slot .glyph { font-size: 52px; }
   .topbar h1 { letter-spacing: 3px; }
@@ -795,31 +965,41 @@ table.criteria tr.dim { opacity: 0.45; }
   opacity: 0;
   transition: opacity .25s ease, transform .25s ease;
 }
+/* 上一轮对面的出招小格：没显示时不参与命中测试，免得指针扫过空处弹出提示 */
+.last-cpu:not(.show) { pointer-events: none; }
 .last-cpu.show { opacity: 1; transform: translateY(-50%) scale(1); }
-.last-cpu .glyph { font-size: 32px; line-height: 1; }
+.last-cpu .glyph { font-size: 40px; line-height: 1; }
 
-/* ---------- 上一轮：我方胜负角标 ---------- */
-.choice .badge {
+/* ---------- 上一轮：胜负角标（我方出招按钮 / 对手补录按钮共用一套） ---------- */
+.choice .badge,
+.pick .badge {
   position: absolute;
-  right: 8px;
-  bottom: 8px;
+  /* 外挂偏移按“墨迹半径”留量：图案字形比字号宽高约 10%，小偏移会被墨迹压住 */
+  right: -8px;
+  bottom: -6px;
+  z-index: 2;
   display: grid;
   place-items: center;
-  min-width: 24px;
-  height: 22px;
-  padding: 0 7px;
+  min-width: 26px;
+  height: 24px;
+  padding: 0 8px;
   border-radius: 999px;
-  font-size: 12px;
+  font-size: 13.5px;
   font-weight: 800;
-  letter-spacing: 1px;
+  letter-spacing: 0;
   opacity: 0;
   transform: scale(.7);
   transition: opacity .2s ease, transform .2s ease;
 }
-.choice .badge.show { opacity: 1; transform: scale(1); }
-.choice .badge.win { color: var(--human); background: rgba(55, 214, 163, .16); box-shadow: 0 0 0 1px rgba(55, 214, 163, .45); }
-.choice .badge.draw { color: var(--text-2); background: rgba(255, 255, 255, .1); box-shadow: 0 0 0 1px rgba(255, 255, 255, .2); }
-.choice .badge.lose { color: var(--cpu); background: rgba(255, 107, 129, .16); box-shadow: 0 0 0 1px rgba(255, 107, 129, .45); }
+.choice .badge.show,
+.pick .badge.show { opacity: 1; transform: scale(1); }
+/* 改用实色：徐标会叠在背景上，半透明会透出底下的图案线条 */
+.choice .badge.win,
+.pick .badge.win { color: #05251c; background: rgba(18, 184, 134, .95); box-shadow: 0 2px 10px rgba(0, 0, 0, .35); }
+.choice .badge.draw,
+.pick .badge.draw { color: #0d1526; background: rgba(150, 158, 182, .95); box-shadow: 0 2px 10px rgba(0, 0, 0, .35); }
+.choice .badge.lose,
+.pick .badge.lose { color: #2b0910; background: rgba(255, 96, 120, .95); box-shadow: 0 2px 10px rgba(0, 0, 0, .35); }
 
 /* ---------- 面板工具条 / 排序分段控件 ---------- */
 .panel-tools { display: flex; align-items: center; gap: 10px; margin: 0 0 8px; }
@@ -858,7 +1038,7 @@ table.criteria tr.baseline td { font-weight: 600; }
 .c-pred .rel.lose { color: var(--cpu); }
 
 /* ---------- 策略参数补充 ---------- */
-.params .param-reset { margin-top: 14px; padding: 6px 14px; font-size: 12.5px; }
+.params .param-reset { margin-top: clamp(8px, 1.5vh, 14px); padding: 6px 14px; font-size: 12.5px; }
 /* 被自动调参接管：滑块头做成透明芯 + 紫色描边环，克制地表示“由系统托管” */
 .param-row input[type="range"][data-lock="auto"] { cursor: not-allowed; }
 .param-row input[type="range"][data-lock="auto"]::-webkit-slider-thumb { background: transparent; box-shadow: inset 0 0 0 2px rgba(169, 156, 255, 0.95), 0 0 10px rgba(150, 140, 255, 0.5); cursor: not-allowed; }
@@ -871,6 +1051,208 @@ table.criteria tr.baseline td { font-weight: 600; }
 /* ---------- 窄屏：上一轮小格缩小 ---------- */
 @media (max-width: 560px) {
   .last-cpu { width: 54px; height: 54px; left: calc(100% + 12px); }
-  .last-cpu .glyph { font-size: 26px; }
+  .last-cpu .glyph { font-size: 32px; }
+  .pick { width: 62px; padding: 7px 3px 6px; }
+  .pick i { font-size: 32px; }
+  .mode-toggle { padding: 6px 9px; }
 }
+
+/* ================= 模式切换 & 辅助模式 ================= */
+
+/* ---------- 模式切换按钮：对战区右上角，与左上角工具栏对称 ---------- */
+.mode-toggle {
+  position: absolute;
+  top: 9px;
+  right: 9px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  /* 单行文案，上下padding 对称 */
+  padding: 7px 12px;
+  cursor: pointer;
+  font-family: inherit;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  /* 与外层卡片同心：内缩 9px 则半径相应减小 */
+  border-radius: calc(var(--radius) - 9px);
+  opacity: 0.74;
+  transition: opacity 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+}
+.mode-toggle:hover {
+  opacity: 1;
+  border-color: rgba(123, 108, 255, 0.55);
+  background: rgba(123, 108, 255, 0.16);
+}
+.mode-toggle .mode-v { font-size: 12.5px; font-weight: 700; letter-spacing: 1px; color: var(--text); }
+/* 按钮贴在最右侧，提示若按默认的 left:0 向右展开会溢出到分析面板底下被盖住；
+   这里改成右对齐、向左展开（特异性高于全局 [data-tip]:hover::after） */
+.mode-toggle[data-tip]:hover::after { left: auto; right: 0; }
+/* 注：这里曾给辅助模式单配一套绿色按钮（绿边框 + 绿底）以示区分，
+   但两种模式的这个按钮样式应当完全一致（当前玩法由页面内容表达），故不再覆盖。 */
+
+/* ---------- 辅助模式：补录对手的实际出招 ---------- */
+.pick-row { position: relative; display: flex; align-items: center; justify-content: center; gap: 7px; }
+/* 标签挂在按钮组左侧的空白处（绝对定位），不参与布局，避免把按钮挤得不居中 */
+.pick-row .pick-label {
+  position: absolute;
+  right: 100%;
+  top: 50%;
+  transform: translateY(-50%);
+  margin-right: 9px;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: 1px;
+}
+.pick {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: clamp(50px, 6vh, 64px);
+  height: clamp(50px, 6vh, 64px);
+  padding: 0;
+  cursor: pointer;
+  color: var(--text-strong);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 14px;
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), border-color 0.2s ease, background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+.pick i { font-style: normal; font-size: clamp(24px, 3.2vh, 34px); line-height: 1; }
+.pick:hover { transform: scale(1.08); border-color: rgba(255, 107, 129, 0.6); color: var(--text); }
+.pick.on {
+  color: var(--text);
+  background: rgba(255, 107, 129, 0.14);
+  border-color: var(--cpu);
+  box-shadow: 0 0 0 3px rgba(255, 107, 129, 0.18);
+}
+/* 辅助模式下这三颗按钮是可以点的，悬停反馈要轻（比「选中」还轻一档）——
+   三级递进：悬停（边框微亮）< 选中（边框亮 + 淡绿底 + 一圈细光）< 推荐（绿底 + 脉动光晕 + 图案辉光）。
+   :not(.advised) 让推荐那一颗保持自己的脉动效果；:not(.locked) 保证揭示之后不再有悬停反馈。 */
+.arena[data-mode="assist"] .choices:not(.locked) .choice:not(.advised):hover {
+  transform: none;
+  border-color: rgba(99, 230, 190, 0.5);
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0.10));
+  box-shadow: none;
+}
+/* 改选到别的招时：介于「悬停」与「推荐」之间的一档 —— 边框更亮、最淡的绿底、一圈细光，
+   让人一眼看出「我方就出这个」，但不上缩放/大光晕/动画，不能抢「AI 推荐」的锋芒。
+   底色压到几乎只剩一丝绿（0.03/0.015），选中感完全交给边框与细光去表达。
+   必须写在上面 hover 规则之后：两者特异性相同（都是 7），悬停已选中的那颗时
+   要显示这一档，而不是被 hover 档盖回云。
+   :not(.advised) 保证「选的正是推荐」时完全不碰那套酷炫效果；
+   :not(.locked) 让揭示之后仍按原来的满配高亮展示我方实际出的那一招。 */
+.arena[data-mode="assist"] .choices:not(.locked) .choice.picked:not(.advised) {
+  transform: none;
+  border-color: rgba(99, 230, 190, 0.8);
+  background: linear-gradient(160deg, rgba(99, 230, 190, 0.03), rgba(18, 184, 134, 0.015));
+  box-shadow: 0 0 0 2px rgba(55, 214, 163, 0.28);
+}
+/* 辅助模式里「我方改选了别的招」时，在右上角挂一个角标，报出这一招相对 AI 默认候选的收益差
+   （和按钮下方 .ev 同口径同格式，两个数直接相减就是它），免得只看到高亮却不知道代价。
+   文案由 JS 写进 data-tag：并列最优（收益完全一样）的换选标「选中」，其余是带符号的差值。
+   谁挂角标由 JS 的 .altered 说了算 —— 并列时换选的那颗自身也带着 .advised，
+   所以不能像早先那样用 :not(.advised) 去排除；没有可信依据（AI 随机出招）时 JS 根本不挂。
+   揭示之后整排锁定（.locked），角标一并收起，把版面让给右下角的胜负标记。
+   角标走 ::before（.choice 的 ::after 与右下角 badge 是同一个位置区，别打架）。 */
+.arena[data-mode="assist"] .choices:not(.locked) .choice.altered::before {
+  content: attr(data-tag);
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 800;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+  color: #04241b;
+  background: rgba(99, 230, 190, 0.95);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+}
+/* 负收益差（改选比推荐亏）换成「输」那套红：色值取自 .choice .badge.lose，
+   和按钮下方 .ev.down 的粉红同色系，红=亏这个语义不至于反过来。
+   用属性选择器认 data-tag 的首字符，就不必再让 JS 多挂一个类。 */
+.arena[data-mode="assist"] .choices:not(.locked) .choice.altered[data-tag^="-"]::before {
+  color: #2b0910;
+  background: rgba(255, 96, 120, 0.95);
+}
+
+/* 焦点环统一成绿色：浏览器默认那圈紫蓝色（-webkit-focus-ring-color）跟这里的绿系设计语言冲突，
+   点完按钮或键盘 Tab 过去时会突兀地闪一圈紫蓝。这里换成自定义绿色 outline。
+   用 outline 而不是 box-shadow，避免盖掉「选中 / 推荐」那几层光圈（outline 会跟随圆角描边）；
+   挂在 :focus-visible 上，鼠标点击路径不会平白多出一圈环。 */
+.choice:focus-visible,
+.pick:focus-visible,
+.btn:focus-visible,
+.mode-toggle:focus-visible {
+  outline: 2px solid rgba(99, 230, 190, 0.75);
+  outline-offset: 2px;
+}
+
+/* ---------- 辅助模式布局 ----------
+   对手只需要三颗待选按钮（补录），不再需要那个占位的大方块；
+   我方仍是三颗出招（AI 推荐的那颗高亮），每颗下方标出理论收益。
+   两排按钮统一沿用「对战模式」那一套尺寸，并按左栏宽度兜底（3 颗并排放不下时自动收）。 */
+.arena[data-mode="assist"] .move-wrap { display: none; }
+.arena[data-mode="assist"] .pick-row { gap: clamp(12px, 2vh, 20px); }
+.arena[data-mode="assist"] .pick-row .pick-label { display: none; }
+.arena[data-mode="assist"] .choices,
+.arena[data-mode="assist"] .pick-row { width: 100%; }
+.arena[data-mode="assist"] .choices .choice,
+.arena[data-mode="assist"] .pick {
+  width: min(clamp(76px, 11vh, 126px), 28%);
+  height: auto;
+  aspect-ratio: 1;
+  border-radius: 22px;
+}
+.arena[data-mode="assist"] .pick i { font-size: clamp(44px, 6.2vh, 70px); }
+/* 收益值贴在按钮内底部，图案就不能满到探底：减约 6%，换来「图案绝对居中 + 收益不压图案」 */
+.arena[data-mode="assist"] .choices .choice .glyph { font-size: clamp(41px, 5.8vh, 66px); }
+/* 补录按钮放大到与大按钮同级后，不能直接沿用 .choice 那套位移：那套是按「图案 + 下方收益文字」
+   的整体观感校的，而这里按钮里只有图案。下面三个值由像素实测（墨迹 bbox 中心 - 按钮中心）重新标定。 */
+.arena[data-mode="assist"] .pick[data-move="R"] i { transform: translate(-0.008em, -0.056em); }
+.arena[data-mode="assist"] .pick[data-move="P"] i { transform: translate(-0.002em, 0.025em); }
+.arena[data-mode="assist"] .pick[data-move="S"] i { transform: translate(0.010em, 0.006em); }
+/* 每颗按钮下方的「理论收益」：按 AI 对对手出招的预测算期望（胜 - 负） */
+.choice .ev {
+  position: absolute;
+  left: 50%;
+  bottom: clamp(5px, 0.9vh, 9px);
+  transform: translateX(-50%);
+  font-size: clamp(11px, 1.4vh, 14px);
+  font-weight: 800;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  opacity: 0;
+  transition: opacity 0.2s ease, color 0.2s ease;
+  pointer-events: none;
+}
+/* 辅助模式：图案照旧在按钮内绝对居中，收益值贴回按钮内底部（原来那个小字贴边的观感）。
+   两者能共存的前提是图案墨迹不探到底部那一带 —— 所以辅助模式把图案略减了约 6%（见上面的字号），
+   收益也压得比基础值更靠下，把余量让给图案。 */
+.arena[data-mode="assist"] .choice .ev { opacity: 1; bottom: clamp(3px, 0.6vh, 6px); }
+.arena[data-mode="assist"] .choice .ev.up { color: #63e6be; }
+.arena[data-mode="assist"] .choice .ev.down { color: var(--cpu-soft); }
+/* 大屏时跟着对战模式的高屏档一起放大（必须放在这一块之后，否则会被上面同特异性的规则盖掉） */
+@media (min-height: 1000px) {
+  .arena[data-mode="assist"] .choices .choice,
+  .arena[data-mode="assist"] .pick { width: min(clamp(115px, 14vh, 165px), 28%); }
+  .arena[data-mode="assist"] .pick i { font-size: clamp(64px, 8vh, 92px); }
+  .arena[data-mode="assist"] .choices .choice .glyph { font-size: clamp(60px, 7.4vh, 86px); }
+}
+/* 中缝横幅两个模式共用同一套尺寸/字重，保证「我方赢了 / 对手赢了 / 平局」看起来完全一致 */
+/* 辅助模式会自动展开分析面板，而 `.layout.with-panel .arena` 的 gap 只在矮屏被收窄一档
+   （见上面的 max-height:1000px）；横幅夹在两组按钮中间会更显挤，这里把那点差值补回来。
+   高屏两模式的 gap 本来就相同，不加任何补偿。 */
+@media (max-height: 1000px) {
+  .arena[data-mode="assist"] .result-banner { margin-block: 2px; }
+}
+
 

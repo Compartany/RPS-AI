@@ -1,5 +1,5 @@
 /*!
- * RPS-Duel · 自适应预测核心
+ * RPS-AI · 自适应预测核心
  * 多标准「专家」加权投票：每个标准独立统计人类出招习惯，按应验率动态加权。
  */
 (function (global) {
@@ -105,19 +105,16 @@
     return best;
   }
 
-  /** 对预测分布选期望收益最高的出招（赢概率 − 输概率最大）；概率相等时随机打破 */
-  function bestMove(p) {
-    const order = shuffled(MOVES);
-    let best = order[0];
-    let bv = -Infinity;
-    for (const c of order) {
-      const score = p[VICTIM[c]] - p[COUNTER[c]];
-      if (score > bv + 1e-9) {
-        bv = score;
-        best = c;
-      }
-    }
-    return best;
+  /**
+   * 期望收益并列最高的出招集合（赢概率 − 输概率最大）。
+   * 并列判定用的就是界面展示精度（两位小数）：界面上数字一模一样的两招就该同等对待，
+   * 否则会出现「两颗都写着 +0.30，却只认其中一颗是推荐」的别扭。
+   * 返回数组 —— 长度为 1 时即唯一最优，调用方自行决定是随机挑一个还是并列展示。
+   */
+  function bestMoves(scores) {
+    const r2 = (v) => Math.round(v * 100) / 100;
+    const top = r2(Math.max(...MOVES.map((m) => scores[m])));
+    return MOVES.filter((m) => r2(scores[m]) === top);
   }
 
   /**
@@ -364,7 +361,7 @@
         for (const m of MOVES) meta[m] = acc[m] / weightSum;
       }
 
-      // 三招各自的期望收益（赢概率 − 输概率），与 bestMove 的评分一致
+      // 三招各自的期望收益（赢概率 − 输概率），口径与下面的 bestMoves 及面板展示一致
       const scores = {};
       for (const m of MOVES) scores[m] = meta[VICTIM[m]] - meta[COUNTER[m]];
 
@@ -413,7 +410,10 @@
       for (const m of MOVES) final[m] = (1 - epsilon) * meta[m] + epsilon / 3;
 
       // 决策：在综合分布上取期望收益最大的招（赢概率 − 输概率）
-      const bestCpu = bestMove(meta);          // 不含探索的最优招
+      // 并列最优（收益完全一致）时随机挑一个作为「默认候选」，其余并列项一并交给界面 ——
+      // 它们在界面上地位相同，都算 AI 推荐。
+      const bestTies = bestMoves(scores);
+      const bestCpu = bestTies[randInt(bestTies.length)];
       // 押注概率：AI 的预测是否已被证明显著优于随机基准（由主流程按预测命中率做显著性检验后写入）
       const trust = clamp(Number(this.options.predictTrust) || 0, 0, 1);
       let cpuMove = bestCpu;
@@ -446,6 +446,7 @@
       return {
         cpuMove,
         bestCpu,
+        bestTies,                               // 期望收益并列最高的招（含 bestCpu，顺序为 MOVES 顺序）
         target,
         metaProbs: meta,
         probs: final,
