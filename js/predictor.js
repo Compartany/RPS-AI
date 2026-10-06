@@ -1,141 +1,30 @@
 /*!
  * RPS-AI · 自适应预测核心
- * 多标准「专家」加权投票：每个标准独立统计人类出招习惯，按应验率动态加权。
+ *
+ * 多标准「专家」加权投票：每个标准独立统计「被预测者」的出招习惯，按应验率动态加权。
  */
 (function (global) {
   'use strict';
 
-  const MOVES = ['R', 'P', 'S'];
-  const NAMES = { R: '石头', P: '布', S: '剪刀' };
-  const EMOJI = { R: '✊', P: '✋', S: '✌️' };
-  const COUNTER = { R: 'P', P: 'S', S: 'R' }; // COUNTER[x] = 能击败 x 的招
-  const VICTIM = { R: 'S', P: 'R', S: 'P' };  // VICTIM[x] = 被 x 击败的招
+  const {
+    MOVES, COUNTER, VICTIM,
+    relation, sum, clamp, shrink, laplace, uniform,
+    randInt, randFloat, argmaxProbs, bestMoves, sampleProbs,
+  } = global.RPS;
 
-  /** 人类 h 对电脑 c 的结果：'human' | 'cpu' | 'draw' */
-  function judge(h, c) {
-    if (h === c) return 'draw';
-    return COUNTER[c] === h ? 'human' : 'cpu';
-  }
+  /* ------------------------------ 决策参数 ------------------------------ */
 
-  /** 人类招 h 相对参照招 r 的关系：'win'(克制) | 'draw'(相同/平) | 'lose'(被克制/输) */
-  function relation(h, r) {
-    if (h === r) return 'draw';
-    return COUNTER[r] === h ? 'win' : 'lose';
-  }
-
-  const sum = (c) => c.R + c.P + c.S;
-  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
-
-  /**
-   * 样本收缩：把应验率 p 按样本量 n 向随机基准 1/3 收缩，z 为收缩强度（z=0 时原样返回）。
-   * 用「向基准收缩」而不是「置信下界」，好处是高于基准的应验率始终保留正权重，
-   * 不会因为收缩过强而让所有标准一起归零（AI 失去全部依据）。
-   */
-  function shrink(p, n, z) {
-    if (!n || !z) return p;
-    return 1 / 3 + (p - 1 / 3) * (n / (n + z));
-  }
-
-  /** 拉普拉斯平滑后的概率分布 */
-  function laplace(c, alpha) {
-    const t = sum(c);
-    const out = {};
-    for (const m of MOVES) out[m] = (c[m] + alpha) / (t + 3 * alpha);
-    return out;
-  }
-
-  /** 均匀分布 */
-  function uniform() {
-    return { R: 1 / 3, P: 1 / 3, S: 1 / 3 };
-  }
-
-  /* ------------------------------ 无偏随机工具 ------------------------------ */
-
-  // crypto.getRandomValues 走操作系统熵源，质量远高于 Math.random（后者是实现的 PRNG）。
-  const HAS_CRYPTO = typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function';
-
-  /** 均匀随机浮点 [0,1) */
-  function randFloat() {
-    if (!HAS_CRYPTO) return Math.random();
-    const u = new Uint32Array(1);
-    crypto.getRandomValues(u);
-    return u[0] / 4294967296;
-  }
-
-  /**
-   * 均匀随机整数 [0, n)（n ≤ 256）。
-   * 用拒绝采样：源的字节范围 0~255 未必能被 n 整除（256 % 3 = 1），
-   * 直接 `% n` 会让 0、1 比 2 多出 1/256 的概率；丢掉尾部零头则完全无偏。
-   */
-  function randInt(n) {
-    if (!HAS_CRYPTO || n > 256) return Math.floor(randFloat() * n);
-    const limit = Math.floor(256 / n) * n;
-    const buf = new Uint8Array(1);
-    let v;
-    do {
-      crypto.getRandomValues(buf);
-      v = buf[0];
-    } while (v >= limit);
-    return v % n;
-  }
-
-  /** Fisher–Yates 洗牌（`sort(() => Math.random() - 0.5)` 的分布并不均匀） */
-  function shuffled(arr) {
-    const a = arr.slice();
-    for (let i = a.length - 1; i > 0; i--) {
-      const j = randInt(i + 1);
-      const t = a[i];
-      a[i] = a[j];
-      a[j] = t;
-    }
-    return a;
-  }
-
-  /** 取概率最大项，随机打破平局（避免固定偏向） */
-  function argmaxProbs(p) {
-    let best = MOVES[0];
-    let bv = -Infinity;
-    const order = shuffled(MOVES);
-    for (const m of order) {
-      if (p[m] > bv + 1e-9) {
-        bv = p[m];
-        best = m;
-      }
-    }
-    return best;
-  }
-
-  /**
-   * 期望收益并列最高的出招集合（赢概率 − 输概率最大）。
-   * 并列判定用的就是界面展示精度（两位小数）：界面上数字一模一样的两招就该同等对待，
-   * 否则会出现「两颗都写着 +0.30，却只认其中一颗是推荐」的别扭。
-   * 返回数组 —— 长度为 1 时即唯一最优，调用方自行决定是随机挑一个还是并列展示。
-   */
-  function bestMoves(scores) {
-    const r2 = (v) => Math.round(v * 100) / 100;
-    const top = r2(Math.max(...MOVES.map((m) => scores[m])));
-    return MOVES.filter((m) => r2(scores[m]) === top);
-  }
-
-  /**
-   * 按概率分布随机取一招。
-   * 预测没有显著优于随机基准时，与其用 argmax 押一个「靠噪声排出来的最优招」（确定性函数，
-   * 排序一旦固定就会长期出同一招，极易被反制），不如按分布取样——仍是同一份预测，
-   * 但出招的边际分布等于预测分布，对手无法靠观察固定规律来针对。
-   */
-  function sampleProbs(p) {
-    const order = shuffled(MOVES);
-    let r = randFloat();
-    for (const m of order) {
-      r -= p[m];
-      if (r < 0) return m;
-    }
-    return order[order.length - 1];
-  }
+  // ε（本局纯随机出招概率）的三项来源
+  const EPS = {
+    base: 0.12, slope: 0.18, lo: 0.02, hi: 0.12,   // 自适应扰动 = base − 应验率 × slope，夹在 [lo, hi]
+    flatGap: 0.4, flatBonus: 0.05, flatHi: 0.18,   // 最大概率 < flatGap 时再加 flatBonus，上限 flatHi
+    earlySlope: 0.09, earlyLo: 0.02,               // 开局随机度 = 1 − 局数 × earlySlope，夹在 [earlyLo, 1]
+    accShrink: 4,                                  // 全局应验率的收缩强度
+  };
 
   /**
    * 单个「标准」（专家）。
-   * source = 'freq' 整体频率 | 'self' 人类自身前 N 招 | 'opp' 对电脑前 N 招
+   * source = 'freq' 整体频率 | 'self' 人类自身前 N 招 | 'opp' 对电脑前 N 招 | 'random' 随机基线
    */
   class Expert {
     constructor(source, order, mode) {
@@ -143,9 +32,9 @@
       this.order = order;
       this.mode = mode || 'moves';   // 'moves' 出招序列 | 'result' 胜负关系序列
       this.baseline = source === 'random'; // 随机基线：不学习，命中率恒为 1/3
-      this.buckets = new Map(); // key -> { R, P, S }
-      this.hits = 0;            // 该标准预测命中的次数
-      this.tries = 0;           // 该标准参与评估的次数
+      this.buckets = new Map();      // key -> { R, P, S }
+      this.hits = 0;                 // 该标准预测命中的次数
+      this.tries = 0;                // 该标准参与评估的次数
     }
 
     get name() {
@@ -170,33 +59,39 @@
         : `电脑最近连续 ${this.order} 招之后你的应对`;
     }
 
-    /** 当前局面下的匹配键；历史长度不足返回 null */
-    keyFor(history) {
+    /**
+     * 当前局面下的匹配键；历史长度不足返回 null。
+     * end 表示「只看前 end 局」（缺省为全部），供回放时免去切数组的开销。
+     */
+    keyFor(history, end) {
       if (this.source === 'freq' || this.source === 'random') return 'ALL';
+      const len = end == null ? history.length : end;
 
       if (this.mode === 'result') {
         // 胜负关系序列
         if (this.source === 'self') {
-          if (history.length < this.order + 1) return null;
+          if (len < this.order + 1) return null;
           const seq = [];
-          for (let i = history.length - this.order; i < history.length; i++) {
+          for (let i = len - this.order; i < len; i++) {
             seq.push(relation(history[i].human, history[i - 1].human));
           }
           return seq.join('>');
         }
-        if (history.length < this.order) return null;
-        return history
-          .slice(-this.order)
-          .map((h) => relation(h.human, h.cpu))
-          .join('>');
+        if (len < this.order) return null;
+        const seq = [];
+        for (let i = len - this.order; i < len; i++) {
+          seq.push(relation(history[i].human, history[i].cpu));
+        }
+        return seq.join('>');
       }
 
       // 出招序列
-      if (history.length < this.order) return null;
-      return history
-        .slice(-this.order)
-        .map((h) => (this.source === 'self' ? h.human : h.cpu))
-        .join('>');
+      if (len < this.order) return null;
+      const seq = [];
+      for (let i = len - this.order; i < len; i++) {
+        seq.push(this.source === 'self' ? history[i].human : history[i].cpu);
+      }
+      return seq.join('>');
     }
 
     bucket(key) {
@@ -224,6 +119,73 @@
     }
   }
 
+  /* ------------------------------ 合成与决策辅助 ------------------------------ */
+
+  /** 把累加权重归一化为概率分布（无任何可信标准时退回均匀） */
+  function normalize(acc, weightSum) {
+    if (!(weightSum > 0)) return uniform();
+    const meta = {};
+    for (const m of MOVES) meta[m] = acc[m] / weightSum;
+    return meta;
+  }
+
+  /** 三招各自的期望收益（赢概率 − 输概率），口径与 bestMoves 及面板展示一致 */
+  function expectedScores(meta) {
+    const scores = {};
+    for (const m of MOVES) scores[m] = meta[VICTIM[m]] - meta[COUNTER[m]];
+    return scores;
+  }
+
+  /** 权重占比：参与合成的标准合计为 1；无可信标准时随机基线独占 100% */
+  function assignShares(breakdown, weightSum) {
+    for (const it of breakdown) {
+      if (weightSum > 0) {
+        if (it.matched) it.share = it.weight / weightSum;
+      } else if (it.baseline) {
+        it.share = 1;
+      }
+    }
+  }
+
+  /** 各参与标准的加权平均应验率（供自动调参与面板展示） */
+  function weightedAccuracy(breakdown) {
+    let accSum = 0;
+    let wSum = 0;
+    for (const it of breakdown) {
+      if (it.matched && !it.baseline) {
+        accSum += it.weight * it.accuracy;
+        wSum += it.weight;
+      }
+    }
+    return wSum > 0 ? accSum / wSum : 1 / 3;
+  }
+
+  /** 把 ε 的均匀随机掺进预测分布：final = (1 − ε)·meta + ε/3 */
+  function blendUniform(meta, epsilon) {
+    const final = {};
+    for (const m of MOVES) final[m] = (1 - epsilon) * meta[m] + epsilon / 3;
+    return final;
+  }
+
+  /**
+   * 依据「探索」与「押注」策略挑出实际出招。
+   * 两个随机数按固定顺序取用（与旧实现一致，保持行为不变）。
+   */
+  function pickMove(meta, { weightSum, epsilon, trust, bestCpu }) {
+    if (weightSum === 0) {
+      // 没有任何可信依据，谈不上「预测最优」，只能随机出招
+      return { cpuMove: MOVES[randInt(MOVES.length)], explore: false, sampled: false };
+    }
+    if (epsilon > 0 && randFloat() < epsilon) {
+      return { cpuMove: MOVES[randInt(MOVES.length)], explore: true, sampled: false };
+    }
+    if (randFloat() >= trust) {
+      // 预测还没有显著优于随机：不押注最优招，改按预测分布取样
+      return { cpuMove: sampleProbs(meta), explore: false, sampled: true };
+    }
+    return { cpuMove: bestCpu, explore: false, sampled: false };
+  }
+
   class Predictor {
     constructor(N, options) {
       this.N = clamp(N | 0 || 3, 1, 8);
@@ -244,25 +206,23 @@
       this.experts.push(new Expert('random', 0));
     }
 
-    /** 用历史回放重建学习（改变 N 时保留已有对局的学习成果） */
+    /** 用历史回放重建学习（改变 N / α / 半衰期时保留已有对局的学习成果） */
     replay(history) {
       for (const e of this.experts) e.reset();
-      for (let i = 0; i < history.length; i++) {
-        this.learn(history.slice(0, i), history[i].human);
-      }
+      for (let i = 0; i < history.length; i++) this.learn(history, history[i].human, i);
     }
 
     /**
-     * 学习一步：history 为「本次出招前」的历史，humanMove 为人类本次实际出招。
+     * 学习一步：只看前 end 局（缺省为全部），humanMove 为被预测者本次实际出招。
      * 先以旧计数评估各标准预测是否应验，再累加新计数。
      */
-    learn(history, humanMove) {
+    learn(history, humanMove, end) {
       // 时间衰减：每局旧计数乘一次 decay，半衰期 hl 局后权重减半（0 = 不遗忘）
       const hl = Number(this.options.halfLife) || 0;
       const decay = hl > 0 ? Math.pow(0.5, 1 / hl) : 1;
       for (const e of this.experts) {
         if (e.baseline) continue;   // 随机基线不参与学习
-        const key = e.keyFor(history);
+        const key = e.keyFor(history, end);
         if (key === null) continue;
         const b = e.bucket(key);
         const known = sum(b);
@@ -280,36 +240,23 @@
       }
     }
 
-    /**
-     * 决策：返回电脑出招与完整依据（供面板展示）。
-     */
-    /**
-     * 决策：返回电脑出招与完整依据（供面板展示）。
-     * confidenceOverride 可临时覆盖样本收缩强度（自动调参用它评估各档位的实际表现）。
-     */
-    decide(history, confidenceOverride, exploreOverride) {
+    /** 汇总各标准的破绽明细与合成权重（decide 的第一阶段） */
+    tally(history, zOpt) {
       const breakdown = [];
       const acc = { R: 0, P: 0, S: 0 };
       let weightSum = 0;
-      const zOpt = confidenceOverride == null
-        ? Number(this.options.confidence) || 0
-        : Number(confidenceOverride) || 0;
 
       for (const e of this.experts) {
         if (e.baseline) {
           // 随机基线：均匀分布，不参与合成（无预测能力，仅作基准展示）
-          const probs = uniform();
-          const weight = 0;
-          for (const m of MOVES) acc[m] += weight * probs[m];
-          weightSum += weight;
           breakdown.push({
             expert: e,
             matched: true,
             baseline: true,
             key: 'ALL',
             counts: null,
-            probs,
-            weight,
+            probs: uniform(),
+            weight: 0,
             accuracy: 1 / 3,
             tries: 0,
             prediction: null,
@@ -354,117 +301,100 @@
               : null,
         });
       }
+      return { breakdown, acc, weightSum };
+    }
 
-      let meta = uniform();
-      if (weightSum > 0) {
-        meta = {};
-        for (const m of MOVES) meta[m] = acc[m] / weightSum;
-      }
-
-      // 三招各自的期望收益（赢概率 − 输概率），口径与下面的 bestMoves 及面板展示一致
-      const scores = {};
-      for (const m of MOVES) scores[m] = meta[VICTIM[m]] - meta[COUNTER[m]];
-
-      // 归一化权重占比（供面板展示，各参与标准合计为 1）
-      if (weightSum > 0) {
-        for (const it of breakdown) {
-          if (it.matched) it.share = it.weight / weightSum;
-        }
-      } else {
-        // 没有任何可信标准：本局只能靠随机基线出招，权重即 100%
-        for (const it of breakdown) {
-          if (it.baseline) it.share = 1;
-        }
-      }
-
-      // 探索：预测越不确定、历史应验越差，扰动越大（避免被人类反向利用）
+    /**
+     * ε 的三项来源与最终取值。
+     *   · 探索强度档位 —— 保底纯随机概率，受上层显著性检验约束
+     *   · 开局随机度 —— 前期证据不足时临时拉高（约 11 局回落）
+     *   · 自适应扰动 —— 应验差 / 预测不确定时抬高
+     * 三者取最大即本局实际随机概率；「探索扰动」总开关关闭时恒为 0。
+     */
+    exploreProfile(history, meta, exploreOverride) {
+      // 全局应验率同样按样本量收缩：tries = 1 时命中即 100% 只是运气，
+      // 不能让它把探索压到地板（否则前期 AI 拿一个样本就「自信」出招，极易被人类预判）
       let hits = 0;
       let tries = 0;
       for (const e of this.experts) {
         hits += e.hits;
         tries += e.tries;
       }
-      // 应验率同样按样本量收缩：tries=1 时命中即 100% 只是运气，
-      // 不能让它把探索压到地板（否则前期 AI 拿一个样本就"自信"出招，极易被人类预判）
-      const globalAcc = shrink(tries ? hits / tries : 1 / 3, tries, 4);
-      let epsilon = clamp(0.12 - globalAcc * 0.18, 0.02, 0.12);
+      const globalAcc = shrink(tries ? hits / tries : 1 / 3, tries, EPS.accShrink);
+
+      // 自适应扰动：预测越不确定、历史应验越差，扰动越大（避免被人类反向利用）
+      let adaptiveEps = clamp(EPS.base - globalAcc * EPS.slope, EPS.lo, EPS.hi);
       const maxP = Math.max(meta.R, meta.P, meta.S);
-      if (maxP < 0.4) epsilon = clamp(epsilon + 0.05, 0.02, 0.18);
-      // 自适应扰动（应验差 / 预测不确定）
-      const adaptiveEps = epsilon;
+      if (maxP < EPS.flatGap) adaptiveEps = clamp(adaptiveEps + EPS.flatBonus, EPS.lo, EPS.flatHi);
+
       // 前期随机度：开局这几局证据不足，AI 就该更接近纯随机。
-      // 少量样本给出的偏斜（"AI 总是出某个招"）太容易被人类摸清，
-      // 随机度必须能压住它；对局数越多随机度越低，11 局左右回落到常规水平。
-      const earlyRand = clamp(1 - history.length * 0.09, 0.02, 1);
-      // 探索强度 = 保底纯随机概率（0~1）；自适应扰动更高时以更高者为准
+      // 少量样本给出的偏斜（「AI 总是出某个招」）太容易被人类摸清，随机度必须能压住它。
+      const earlyRand = clamp(1 - history.length * EPS.earlySlope, EPS.earlyLo, 1);
+
+      // 探索强度档位（0~1）；自适应扰动更高时以更高者为准
       const exploreScale = exploreOverride == null
         ? Number(this.options.exploreScale) || 0
         : Number(exploreOverride) || 0;
-      // ε 是否由「前期随机度」主导（供面板说明）
+
       const earlyRandom = this.options.explore && earlyRand > Math.max(adaptiveEps, exploreScale);
-      epsilon = this.options.explore
-        ? clamp(Math.max(epsilon, earlyRand, exploreScale), 0, 1)
+      const epsilon = this.options.explore
+        ? clamp(Math.max(adaptiveEps, earlyRand, exploreScale), 0, 1)
         : 0;
 
-      const final = {};
-      for (const m of MOVES) final[m] = (1 - epsilon) * meta[m] + epsilon / 3;
+      return { epsilon, adaptiveEps, earlyRand, earlyRandom, exploreScale };
+    }
 
-      // 决策：在综合分布上取期望收益最大的招（赢概率 − 输概率）
-      // 并列最优（收益完全一致）时随机挑一个作为「默认候选」，其余并列项一并交给界面 ——
-      // 它们在界面上地位相同，都算 AI 推荐。
+    /**
+     * 决策：返回实际出招与完整依据（供面板展示）。
+     * confidenceOverride 可临时覆盖样本收缩强度（自动调参用它评估各档位的实际表现）。
+     */
+    decide(history, confidenceOverride, exploreOverride) {
+      const zOpt = confidenceOverride == null
+        ? Number(this.options.confidence) || 0
+        : Number(confidenceOverride) || 0;
+
+      // 1) 各标准合成 → 预测分布与期望收益
+      const { breakdown, acc, weightSum } = this.tally(history, zOpt);
+      const meta = normalize(acc, weightSum);
+      const scores = expectedScores(meta);
+      assignShares(breakdown, weightSum);
+
+      // 2) 掺入探索扰动
+      const eps = this.exploreProfile(history, meta, exploreOverride);
+      const final = blendUniform(meta, eps.epsilon);
+
+      // 3) 在综合分布上取期望收益最大的招；并列最优时随机挑一个作为「默认候选」
       const bestTies = bestMoves(scores);
       const bestCpu = bestTies[randInt(bestTies.length)];
-      // 押注概率：AI 的预测是否已被证明显著优于随机基准（由主流程按预测命中率做显著性检验后写入）
+      // 押注概率：AI 的预测是否已被证明显著优于随机（由主流程做显著性检验后写入）
       const trust = clamp(Number(this.options.predictTrust) || 0, 0, 1);
-      let cpuMove = bestCpu;
-      let explore = false;
-      let sampled = false;
-      if (weightSum === 0) {
-        // 没有任何可信依据，谈不上「预测最优」，只能随机出招
-        cpuMove = MOVES[randInt(MOVES.length)];
-      } else if (epsilon > 0 && randFloat() < epsilon) {
-        cpuMove = MOVES[randInt(MOVES.length)];
-        explore = true;
-      } else if (randFloat() >= trust) {
-        // 预测还没有显著优于随机：不押注最优招，改按预测分布取样
-        cpuMove = sampleProbs(meta);
-        sampled = true;
-      }
-      // 命中率的尺子 = AI 对你下一招的预测（只看预测准不准，与电脑实际出什么招、是否探索无关）
+      const move = pickMove(meta, { weightSum, epsilon: eps.epsilon, trust, bestCpu });
+      // 命中率的尺子 = AI 对下一招的预测（只看预测准不准，与电脑实际出什么招、是否探索无关）
       const target = argmaxProbs(meta);
 
-      // 各参与标准的加权平均应验率（供自动调参与面板展示）
-      let accSum = 0;
-      let wSum = 0;
-      for (const it of breakdown) {
-        if (it.matched && !it.baseline) {
-          accSum += it.weight * it.accuracy;
-          wSum += it.weight;
-        }
-      }
-
       return {
-        cpuMove,
+        cpuMove: move.cpuMove,
         bestCpu,
         bestTies,                               // 期望收益并列最高的招（含 bestCpu，顺序为 MOVES 顺序）
         target,
         metaProbs: meta,
         probs: final,
         breakdown,
-        epsilon,
-        explore,
-        sampled,                                // 本局是否「预测不显著 → 按分布取样」（未押注最优招）
+        epsilon: eps.epsilon,
+        explore: move.explore,
+        sampled: move.sampled,                  // 本局是否「预测不显著 → 按分布取样」（未押注最优招）
         trust,                                  // 本局的押注概率（0 = 从不押注，1 = 总是押注）
-        earlyRandom,                            // ε 是否由前期随机度主导
-        earlyRand,                              // 前期随机度数值（不受上限约束）
-        adaptiveEps,                            // 自适应扰动（不受上限约束）
-        exploreScale,                           // 探索强度档位（受上限约束）
-        avgAcc: wSum > 0 ? accSum / wSum : 1 / 3,
+        earlyRandom: eps.earlyRandom,           // ε 是否由前期随机度主导
+        earlyRand: eps.earlyRand,               // 前期随机度数值（不受上限约束）
+        adaptiveEps: eps.adaptiveEps,           // 自适应扰动（不受上限约束）
+        exploreScale: eps.exploreScale,         // 探索强度档位（受上限约束）
+        avgAcc: weightedAccuracy(breakdown),
         weightSum,                              // 归一化前总权重（0 = 没有任何可信标准）
         scores,                                 // 三招各自的期望收益（赢−输）
       };
     }
   }
 
-  global.RPS = { MOVES, NAMES, EMOJI, COUNTER, VICTIM, relation, Predictor, Expert, judge, randInt, randFloat };
+  global.RPS.Expert = Expert;
+  global.RPS.Predictor = Predictor;
 })(window);

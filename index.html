@@ -197,8 +197,14 @@
   </div>
 </div>
 
-<script src="js/nist.js"></script>
+<!-- 加载顺序：基础库 → 预测核心 → NIST → 应用上下文 → 调参/存档/渲染 → 流程入口 -->
+<script src="js/core.js"></script>
 <script src="js/predictor.js"></script>
-<script src="js/main.js"></script>
+<script src="js/nist.js"></script>
+<script src="js/app/context.js"></script>
+<script src="js/app/autotune.js"></script>
+<script src="js/app/storage.js"></script>
+<script src="js/app/render.js"></script>
+<script src="js/app/main.js"></script>
 </body>
 </html>

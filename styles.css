@@ -328,6 +328,7 @@ body {
 .result-banner.draw { color: var(--text-2); background: rgba(255, 255, 255, 0.06); }
 
 /* ---------- 上一轮标记 ---------- */
+/* 出招格右侧的小格：上一轮对面出的招 —— 没显示时不参与命中测试，免得指针扫过空处弹提示 */
 .move-wrap { position: relative; }
 .last-cpu {
   position: absolute;
@@ -344,10 +345,13 @@ body {
   opacity: 0;
   transition: opacity 0.25s ease, transform 0.25s ease;
 }
+.last-cpu:not(.show) { pointer-events: none; }
 .last-cpu.show { opacity: 1; transform: translateY(-50%) scale(1); }
 .last-cpu .glyph { font-size: 40px; line-height: 1; }
 
-.choice .badge {
+/* 胜负角标：我方出招按钮 / 对手补录按钮共用一套 */
+.choice .badge,
+.pick .badge {
   position: absolute;
   /* 外挂偏移按“墨迹半径”留量：图案字形比字号宽高约 10%，小偏移会被墨迹压住 */
   right: -8px;
@@ -366,11 +370,15 @@ body {
   transform: scale(0.7);
   transition: opacity 0.2s ease, transform 0.2s ease;
 }
-.choice .badge.show { opacity: 1; transform: scale(1); }
-/* 改用实色：徐标会叠在背景上，半透明会透出底下的图案线条 */
-.choice .badge.win { color: #05251c; background: rgba(18, 184, 134, 0.95); box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35); }
-.choice .badge.draw { color: #0d1526; background: rgba(150, 158, 182, 0.95); box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35); }
-.choice .badge.lose { color: #2b0910; background: rgba(255, 96, 120, 0.95); box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35); }
+.choice .badge.show,
+.pick .badge.show { opacity: 1; transform: scale(1); }
+/* 改用实色：角标会叠在背景上，半透明会透出底下的图案线条 */
+.choice .badge.win,
+.pick .badge.win { color: #05251c; background: rgba(18, 184, 134, 0.95); box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35); }
+.choice .badge.draw,
+.pick .badge.draw { color: #0d1526; background: rgba(150, 158, 182, 0.95); box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35); }
+.choice .badge.lose,
+.pick .badge.lose { color: #2b0910; background: rgba(255, 96, 120, 0.95); box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35); }
 /* 右下角这个胜负角标太隐晦（用户看不懂那是什么），给个说法：悬浮时在角标正上方弹出。
    文案由 renderLast() 写进 data-tip（写明是上一局的哪一招、结果如何）。
    角标本身已在按钮右下角，提示若按全局规则从 left:0 向右展开，第三颗按钮那里会顶出右边界，
@@ -783,7 +791,10 @@ html::-webkit-scrollbar,
 }
 .params-help:hover { color: var(--text); border-color: rgba(255, 255, 255, 0.3); background: rgba(255, 255, 255, 0.1); }
 /* ---------- 统一悬浮提示 ---------- */
-[data-tip] { position: relative; }
+/* 用 :where() 把特异性压到 0：这条只是给提示伪元素提供一个定位父级，
+   不该反过来盖掉那些自带定位的元素（.last-cpu / .badge 都是 absolute ——
+   它们同特异性时会被这条「后者胜」压倒，导致脱离定位、掉进正常流）。 */
+:where([data-tip]) { position: relative; }
 [data-tip]:hover::after {
   content: attr(data-tip);
   position: absolute;
@@ -811,6 +822,26 @@ html::-webkit-scrollbar,
   left: auto;
   right: 0;
   max-width: min(460px, 76vw);
+}
+/* 策略参数栏是 overflow:auto 的滚动容器，会把溢出的伪元素提示裁掉（长文案尤其明显）。
+   栏内的提示改由 body 级浮层显示（见 main.js 的 initOverflowTips），这里禁掉伪元素版。 */
+.params [data-tip]:hover::after { display: none; }
+/* body 级提示浮层：不受滚动容器裁剪，位置由 JS 按目标元素算并夹在视口内 */
+.tip-layer {
+  position: fixed;
+  z-index: 70;
+  max-width: min(320px, calc(100vw - 24px));
+  padding: 8px 10px;
+  border-radius: 10px;
+  font-size: 11.5px;
+  letter-spacing: 0;
+  line-height: 1.65;
+  text-align: left;
+  color: var(--text-2);
+  background: #16203c;
+  border: 1px solid var(--line);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
 }
 
 .param-row {
@@ -938,68 +969,18 @@ html::-webkit-scrollbar,
 }
 @media (max-width: 560px) {
   .choice { width: 82px; height: 82px; }
-  .last-cpu { width: 54px; height: 54px; left: calc(100% + 12px); }
-  .last-cpu .glyph { font-size: 32px; }
   .choice .glyph { font-size: 42px; }
   .move-slot { width: 108px; height: 108px; }
   .move-slot .glyph { font-size: 52px; }
+  .last-cpu { width: 54px; height: 54px; left: calc(100% + 12px); }
+  .last-cpu .glyph { font-size: 32px; }
+  .pick { width: 62px; padding: 7px 3px 6px; }
+  .pick i { font-size: 32px; }
+  .mode-toggle { padding: 6px 9px; }
   .topbar h1 { letter-spacing: 3px; }
 }
 
-/* ================= 以下为后续新增元素的样式（沿用第一版风格） ================= */
-
-/* ---------- 上一轮：电脑出招小格 ---------- */
-.move-wrap { position: relative; }
-.last-cpu {
-  position: absolute;
-  top: 50%;
-  left: calc(100% + 18px);
-  transform: translateY(-50%) scale(.9);
-  display: grid;
-  place-items: center;
-  width: 66px;
-  height: 66px;
-  border-radius: 18px;
-  border: 1px dashed var(--line);
-  background: rgba(255, 255, 255, 0.03);
-  opacity: 0;
-  transition: opacity .25s ease, transform .25s ease;
-}
-/* 上一轮对面的出招小格：没显示时不参与命中测试，免得指针扫过空处弹出提示 */
-.last-cpu:not(.show) { pointer-events: none; }
-.last-cpu.show { opacity: 1; transform: translateY(-50%) scale(1); }
-.last-cpu .glyph { font-size: 40px; line-height: 1; }
-
-/* ---------- 上一轮：胜负角标（我方出招按钮 / 对手补录按钮共用一套） ---------- */
-.choice .badge,
-.pick .badge {
-  position: absolute;
-  /* 外挂偏移按“墨迹半径”留量：图案字形比字号宽高约 10%，小偏移会被墨迹压住 */
-  right: -8px;
-  bottom: -6px;
-  z-index: 2;
-  display: grid;
-  place-items: center;
-  min-width: 26px;
-  height: 24px;
-  padding: 0 8px;
-  border-radius: 999px;
-  font-size: 13.5px;
-  font-weight: 800;
-  letter-spacing: 0;
-  opacity: 0;
-  transform: scale(.7);
-  transition: opacity .2s ease, transform .2s ease;
-}
-.choice .badge.show,
-.pick .badge.show { opacity: 1; transform: scale(1); }
-/* 改用实色：徐标会叠在背景上，半透明会透出底下的图案线条 */
-.choice .badge.win,
-.pick .badge.win { color: #05251c; background: rgba(18, 184, 134, .95); box-shadow: 0 2px 10px rgba(0, 0, 0, .35); }
-.choice .badge.draw,
-.pick .badge.draw { color: #0d1526; background: rgba(150, 158, 182, .95); box-shadow: 0 2px 10px rgba(0, 0, 0, .35); }
-.choice .badge.lose,
-.pick .badge.lose { color: #2b0910; background: rgba(255, 96, 120, .95); box-shadow: 0 2px 10px rgba(0, 0, 0, .35); }
+/* ================= 组件补充样式 ================= */
 
 /* ---------- 面板工具条 / 排序分段控件 ---------- */
 .panel-tools { display: flex; align-items: center; gap: 10px; margin: 0 0 8px; }
@@ -1047,15 +1028,6 @@ table.criteria tr.baseline td { font-weight: 600; }
 .param-row input[type="range"][data-lock="off"] { opacity: 0.4; cursor: not-allowed; }
 .param-row input[type="range"][data-lock="off"]::-webkit-slider-thumb { background: #6b7488; box-shadow: none; cursor: not-allowed; }
 .param-row input[type="range"][data-lock="off"]::-moz-range-thumb { background: #6b7488; box-shadow: none; cursor: not-allowed; }
-
-/* ---------- 窄屏：上一轮小格缩小 ---------- */
-@media (max-width: 560px) {
-  .last-cpu { width: 54px; height: 54px; left: calc(100% + 12px); }
-  .last-cpu .glyph { font-size: 32px; }
-  .pick { width: 62px; padding: 7px 3px 6px; }
-  .pick i { font-size: 32px; }
-  .mode-toggle { padding: 6px 9px; }
-}
 
 /* ================= 模式切换 & 辅助模式 ================= */
 

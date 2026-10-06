@@ -1,783 +1,20 @@
 /*!
- * RPS-AI · 界面与流程
+ * RPS-AI · 界面渲染
+ *
+ * 记分板 / 对战区 / 分析面板 / 不可预测性卡片 / 对局记录 / NIST 报告。
+ * 全部为「读状态 → 写 DOM」的纯渲染，不含业务规则。
  */
-(function () {
+(function (global) {
   'use strict';
 
-  const { MOVES, NAMES, EMOJI, COUNTER, VICTIM, Predictor, judge, relation, randInt } = window.RPS;
-  const NIST = window.RPS_NIST;
+  const App = global.RPSApp;
+  const { els, state, tx, isAssist, meName, oppName } = App;
+  const { MOVES, NAMES, EMOJI, COUNTER, VICTIM, judge, relation, randInt } = global.RPS;
+  const NIST = global.RPS_NIST;
 
-  const $ = (id) => document.getElementById(id);
-  const els = {
-    layout: $('layout'),
-    panel: $('panel'),
-    panelBtn: $('panelBtn'),
-    panelClose: $('panelClose'),
-    sortSeg: $('sortSeg'),
-    resetBtn: $('resetBtn'),
-    nistBtn: $('nistBtn'),
-    nistModal: $('nistModal'),
-    nistBackdrop: $('nistBackdrop'),
-    nistClose: $('nistClose'),
-    nistBody: $('nistBody'),
-    exportBtn: $('exportBtn'),
-    importBtn: $('importBtn'),
-    importFile: $('importFile'),
-    arena: $('arena'),
-    choices: $('choices'),
-    cpuMove: $('cpuMove'),
-    cpuTag: $('cpuTag'),
-    humanTag: $('humanTag'),
-    resultBanner: $('resultBanner'),
-    modeBtn: $('modeBtn'),
-    modeName: $('modeName'),
-    meAvatar: $('meAvatar'),
-    oppAvatar: $('oppAvatar'),
-    oppPickLabel: $('oppPickLabel'),
-    cpuLabel: $('cpuLabel'),
-    humanLabel: $('humanLabel'),
-    cpuPick: $('cpuPick'),
-    cpuRate: $('cpuRate'),
-    drawRate: $('drawRate'),
-    humanRate: $('humanRate'),
-    barCpu: $('barCpu'),
-    barHuman: $('barHuman'),
-    totalRounds: $('totalRounds'),
-    streak: $('streak'),
-    hitRate: $('hitRate'),
-    hitRateWrap: $('hitRateWrap'),
-    idealRate: $('idealRate'),
-    forecast: $('forecast'),
-    criteriaBody: $('criteriaBody'),
-    lastCpuMove: $('lastCpuMove'),
-    records: $('records'),
-    historyStats: $('historyStats'),
-    alphaInput: $('alphaInput'),
-    alphaOut: $('alphaOut'),
-    confInput: $('confInput'),
-    confOut: $('confOut'),
-    confCompare: $('confCompare'),
-    hlInput: $('hlInput'),
-    hlOut: $('hlOut'),
-    hlCompare: $('hlCompare'),
-    exploreCompare: $('exploreCompare'),
-    predictCompare: $('predictCompare'),
-    randomness: $('randomness'),
-    autoInput: $('autoInput'),
-    paramReset: $('paramReset'),
-    epsInput: $('epsInput'),
-    epsOut: $('epsOut'),
-    exploreInput: $('exploreInput'),
-  };
+  const pctText = (p) => (p * 100).toFixed(0) + '%';
 
-  const state = {
-    history: [],                       // [{ human, cpu }]
-    stats: { cpu: 0, human: 0, draw: 0 },
-    pending: null,                     // 本局电脑已选好的招 + 依据
-    revealed: false,
-    revealedMove: null,
-    hit: 0,
-    hitTries: 0,
-    hitLog: [],                        // 每局 AI 预测是否命中（1/0），供半衰期加权的命中率使用
-    ideal: { win: 0, lose: 0 },        // 假设从不探索、始终按最优预测出招时的胜负
-    bestLog: [],                       // 每局「按最优出招」的胜负（'cpu'/'human'/'draw'），用于估计探索上限
-    lastAvgAcc: null,                  // 上一局各参与标准的加权平均应验率
-    streak: { side: null, count: 0 },
-    lastResult: null,
-    shadow: [],                        // 每局各收缩档位的预测是否命中（1/0）
-    shadowTargets: null,               // 本局各收缩档位的预测招
-    rateTable: null,                   // 各档位在最近窗口的命中率（供面板展示）
-    decayShadow: [],                   // 每局各半衰期档位的预测是否命中（1/0）
-    decayTargets: null,                // 本局各半衰期档位的预测招
-    decayRateTable: null,              // 各半衰期档位在最近窗口的命中率
-    exploreStat: null,                 // 探索上限的判定过程 { w, nEff, z }
-    exploreCap: 0,                     // 探索上限（由显著性检验得出）
-    predictStat: null,                 // 押注判定的过程 { w, nEff, z, trust }
-    predictTrust: 0,                   // 押注概率（0 = 预测不显著，改按分布取样）
-    mode: 'duel',                      // 'duel' 对战模式 | 'assist' 辅助模式
-    picks: { opp: null, me: null },     // 辅助模式：本局补录的对手出招（我方出招默认 AI 推荐，可改选）
-    revealedOpp: null,                 // 本局对手的实际出招（揭示时展示）
-  };
-
-  /* ------------------------------ 玩法模式 ------------------------------ */
-
-  const MODE_LABEL = { duel: '对战模式', assist: '辅助模式' };
-  const isAssist = () => state.mode === 'assist';
-
-  /**
-   * 两种模式下「我方（human 字段）」与「对手（cpu 字段）」的称呼：
-   *   duel   —— 我方 = 你；对手 = 电脑（AI）
-   *   assist —— 我方 = 我方；对手 = 对手（真人，不再叫「电脑」）
-   * 说明文案统一按 duel 的口径写（「你」= 被预测者、「电脑」= cpu 字段那侧），
-   * 切到辅助模式时用 tx() 把角色词换掉；另外「人类」在辅助模式下改称「对手」。
-   */
-  function tx(s) {
-    if (!isAssist()) return s;
-    return String(s)
-      .split('电脑').join('\u0001')   // 先占位，避免与「你」的替换相互干扰
-      .split('人类').join('对手')
-      .split('你').join('对手')
-      .split('\u0001').join('我方');
-  }
-
-  /** 预测器视图：把「被预测者」放进 human 字段（预测器只区分 human / cpu 两列） */
-  function predView() {
-    return isAssist()
-      ? state.history.map((r) => ({ human: r.cpu, cpu: r.human }))
-      : state.history;
-  }
-
-  /** 我方（human 字段一方）的称谓：对战模式是「你」，辅助模式是「我方」 */
-  const meName = () => (isAssist() ? '我方' : '你');
-
-  /** 对手（cpu 字段一方）的称谓：对战模式是「电脑」，辅助模式是「对手」（真人） */
-  const oppName = () => (isAssist() ? '对手' : '电脑');
-
-  // 记忆阶数：固定为 3（不再支持自定义；阶数越高越关注长序列规律，但样本需求也越大）
-  const ORDER = 3;
-
-  const readOptions = () => ({
-    alpha: Number(els.alphaInput.value),
-    exploreScale: Number(els.epsInput.value) / 100,
-    explore: els.exploreInput.checked,
-    confidence: Number(els.confInput.value),
-    halfLife: Number(els.hlInput.value),
-  });
-  const newPredictor = (N) => new Predictor(N, readOptions());
-
-  let predictor = newPredictor(ORDER);
-  let panelSort = 'weight';  // 'weight' 按权重 | 'acc' 按应验率 | 'default' 默认顺序
-
-  // 自动调参：候选的样本收缩档位（0 = 完全按应验率加权）、评估窗口与最少样本
-  const Z_CANDIDATES = [0, 0.5, 1, 1.5, 2];
-  const Z_WINDOW = 40;
-  const Z_MIN_SAMPLES = 12;
-  // 记忆衰减档位（半衰期，局），取 2 的幂便于按对数均匀覆盖；0 = 不遗忘
-  const DECAY_TIERS = [0, 64, 32, 16, 8];
-
-  // 探索强度档位（保底纯随机概率），从低到高；自动调参在此之间按电脑胜率择优
-  const EXPLORE_TIERS = [0, 0.1, 0.2, 0.35, 0.5, 0.7, 1];
-
-  // 每个半衰期档位维护一份独立模型，同时学习同一份历史，用于比较电脑胜率
-  let decayModels = [];
-  function rebuildDecayModels() {
-    const N = ORDER;
-    decayModels = DECAY_TIERS.map((hl) =>
-      new Predictor(N, Object.assign(readOptions(), { halfLife: hl }))
-    );
-    for (const m of decayModels) m.replay(predView());
-  }
-
-  /* ------------------------------ 两套独立档案 ------------------------------ */
-
-  // 两种玩法各自一整套「对局数据 + 参数」：切走前把当前这套寄存起来，切回来原样取回。
-  // 只寄存跟局累积的东西 —— 局内的（pending / revealed / picks …）每局都会重来，不必存。
-  const PROFILE_FIELDS = [
-    'history', 'stats', 'hit', 'hitTries', 'hitLog', 'ideal', 'bestLog',
-    'shadow', 'shadowTargets', 'rateTable',
-    'decayShadow', 'decayTargets', 'decayRateTable',
-    'exploreStat', 'exploreCap', 'predictStat', 'predictTrust',
-    'streak', 'lastResult',
-  ];
-  const parked = { duel: null, assist: null };   // 不在用的那一套（null = 还没启用过）
-
-  /** 当前的参数快照（含自动调参开关） */
-  function readParams() {
-    return {
-      alpha: Number(els.alphaInput.value),
-      exploreScale: Number(els.epsInput.value) / 100,
-      explore: els.exploreInput.checked,
-      autoTune: els.autoInput.checked,
-      confidence: Number(els.confInput.value),
-      halfLife: Number(els.hlInput.value),
-    };
-  }
-
-  /** 把参数快照写回控件（连同输出文案与锁定状态） */
-  function writeParams(p) {
-    els.alphaInput.value = String(p.alpha);
-    els.epsInput.value = String(Math.round(p.exploreScale * 100));
-    els.exploreInput.checked = !!p.explore;
-    els.autoInput.checked = !!p.autoTune;
-    els.confInput.value = String(p.confidence);
-    els.hlInput.value = String(p.halfLife);
-    els.alphaOut.textContent = Number(els.alphaInput.value).toFixed(1);
-    els.epsOut.textContent = Math.round(Number(els.epsInput.value)) + '%';
-    els.confOut.textContent = Number(els.confInput.value).toFixed(1);
-    els.hlOut.textContent = Number(els.hlInput.value) > 0 ? Number(els.hlInput.value) + ' 局' : '不遗忘';
-    syncParamDisabled();
-  }
-
-  // 首次进入某个玩法时用的参数 = 页面初始（HTML 里的默认值）
-  const DEFAULT_PARAMS = readParams();
-
-  /** 把一套资料装进当前工作区（p 为 null 就给干净的一份 + 默认参数） */
-  function setProfileIntoState(p) {
-    state.history = [];
-    state.stats = { cpu: 0, human: 0, draw: 0 };
-    state.hit = 0;
-    state.hitTries = 0;
-    state.hitLog = [];
-    state.ideal = { win: 0, lose: 0 };
-    state.bestLog = [];
-    state.shadow = [];
-    state.shadowTargets = null;
-    state.rateTable = null;
-    state.decayShadow = [];
-    state.decayTargets = null;
-    state.decayRateTable = null;
-    state.exploreStat = null;
-    state.exploreCap = 0;
-    state.predictStat = null;
-    state.predictTrust = 0;
-    state.streak = { side: null, count: 0 };
-    state.lastResult = null;
-    if (p) {
-      Object.assign(state, p.fields);
-      writeParams(p.params);
-    } else {
-      writeParams(DEFAULT_PARAMS);
-    }
-  }
-
-  /** 取某个玩法的快照：当前模式看现场，另一个看寄存位 */
-  function profileOf(mode) {
-    if (mode === state.mode) return { fields: state, params: readParams() };
-    return parked[mode];
-  }
-
-  /** 把当前这套寄存起来（切走前调用） */
-  function parkProfile() {
-    const fields = {};
-    for (const k of PROFILE_FIELDS) fields[k] = state[k];
-    parked[state.mode] = { fields, params: readParams() };
-  }
-
-  /** 把某个玩法那套搬进工作区（寄存位随之清空；没存过就是干净的一份） */
-  function takeProfile(mode) {
-    const p = parked[mode] || null;
-    parked[mode] = null;
-    setProfileIntoState(p);
-  }
-
-  /* ------------------------------ 出招日志（证明电脑没作弊） ------------------------------ */
-
-  /** 电脑选定出招时（你尚未出招）打印一条结构化日志：彩色标签 + 可展开的详情对象 */
-  function logCpuMove(round, d) {
-    const source = d.explore ? '探索随机' : d.sampled ? '按分布取样' : '押注最优招';
-    const t = new Date();
-    const hhmmss = t.toLocaleTimeString('zh-CN', { hour12: false })
-      + '.' + String(t.getMilliseconds()).padStart(3, '0');
-    if (isAssist()) {
-      // 辅助模式：AI 不亲自下场，输出的是「建议我方出什么」；
-      // 期望收益并列时两招都在建议之列（默认候选是其中随机挑的一个）
-      const ties = d.bestTies && d.bestTies.length > 1 ? d.bestTies : null;
-      const brief = (ties || [d.bestCpu]).map((m) => `${EMOJI[m]} ${NAMES[m]}(${m})`).join(' / ');
-      console.log(
-        `%cRPS%c 第 ${round} 局 建议 %c${brief}%c  ·  军师建议  ·  ${hhmmss}`,
-        'background:#12b886;color:#fff;border-radius:4px;padding:1px 5px;font-weight:700',
-        'color:#a6afc9',
-        'color:#63e6be;font-weight:700',
-        null,
-        {
-          局号: round,
-          建议我方出: (ties || [d.bestCpu]).map((m) => `${NAMES[m]}(${m})`).join(' / '),
-          预测对手出: `${NAMES[d.target]}(${d.target})`,
-          预测最大概率: Math.max(d.metaProbs.R, d.metaProbs.P, d.metaProbs.S),
-          时间戳: t.toISOString(),
-        }
-      );
-      return;
-    }
-    console.log(
-      `%cRPS%c 第 ${round} 局 %c${EMOJI[d.cpuMove]} ${NAMES[d.cpuMove]}(${d.cpuMove})%c  ·  ${source}  ·  ${hhmmss}`,
-      'background:#7b6cff;color:#fff;border-radius:4px;padding:1px 5px;font-weight:700',
-      'color:#a6afc9',
-      'color:#ffd76a;font-weight:700',
-      null,
-      {
-        局号: round,
-        电脑出招: `${NAMES[d.cpuMove]}(${d.cpuMove})`,
-        决策来源: source,
-        预测你出: `${NAMES[d.target]}(${d.target})`,
-        预测最大概率: Math.max(d.metaProbs.R, d.metaProbs.P, d.metaProbs.S),
-        探索概率: d.epsilon,
-        押注概率: d.trust,
-        时间戳: t.toISOString(),
-      }
-    );
-  }
-
-  /* ------------------------------ 流程 ------------------------------ */
-
-  function startRound() {
-    syncPredictTrust();
-    const view = predView();
-    state.pending = predictor.decide(view);
-    // 影子：各收缩档位在同一局面下的「预测招」，用于赛后比较预测命中率（不含探索）
-    state.shadowTargets = Z_CANDIDATES.map((zz) => predictor.decide(view, zz).target);
-    // 影子：各记忆半衰期档位（各持一份模型）在同一局面下的「预测招」
-    state.decayTargets = decayModels.map((m) => m.decide(view).target);
-    if (state.pending && state.pending.avgAcc != null) state.lastAvgAcc = state.pending.avgAcc;
-    state.revealed = false;
-    state.revealedMove = null;
-    state.revealedOpp = null;
-    state.picks = { opp: null, me: null };
-    logCpuMove(state.history.length + 1, state.pending);   // 出招已定，立刻打日志（你还没出招）
-    renderArena();
-    renderPanel();
-  }
-
-  /** 对战模式：你出招（电脑的招已由 AI 定好） */
-  function play(move) {
-    if (state.revealed) startRound(); // 展示期间再次出招 → 立即开新局，不丢输入
-    settle(move, state.pending.cpuMove);
-  }
-
-  /** 辅助模式：补录对手（真人）的实际出招，随即结算 */
-  function commitRound() {
-    const opp = state.picks.opp;
-    if (!opp || state.revealed || !state.pending) return;
-    // 我方本轮的招：默认用 AI 推荐，改选过就按改选的出
-    settle(state.picks.me || state.pending.bestCpu, opp);
-  }
-
-  /**
-   * 结算一局。
-   * @param myMove  我方（对战模式下即「你」）的实际出招
-   * @param oppMove 对手的实际出招（对战模式 = AI 已定的招；辅助模式 = 录入的真人出招）
-   */
-  function settle(myMove, oppMove) {
-    // 被预测者的实际出招：对战模式预测你，辅助模式预测电脑（真人）
-    const predicted = isAssist() ? oppMove : myMove;
-    const result = judge(myMove, oppMove);
-
-    state.revealed = true;
-    state.revealedMove = myMove;
-    state.revealedOpp = oppMove;
-    state.lastResult = result;
-    state.stats[result]++;
-
-    state.hitTries++;
-    const hitThisRound = state.pending.target === predicted;
-    if (hitThisRound) state.hit++;
-    state.hitLog.push(hitThisRound ? 1 : 0);
-    if (state.hitLog.length > 5000) state.hitLog.splice(0, state.hitLog.length - 5000);
-
-    // 若这局不探索（始终按最优预测出招）的胜负，用于「最优胜率」与探索上限估计
-    const idealRes = judge(myMove, state.pending.bestCpu);
-    if (idealRes === 'cpu') state.ideal.win++;
-    else if (idealRes === 'human') state.ideal.lose++;
-    state.bestLog.push(idealRes);
-    if (state.bestLog.length > Z_WINDOW * 3) state.bestLog.splice(0, state.bestLog.length - Z_WINDOW * 3);
-
-    // 影子战绩：各收缩档位的预测是否命中被预测者的实际出招
-    if (state.shadowTargets) {
-      state.shadow.push(state.shadowTargets.map((t) => (t === predicted ? 1 : 0)));
-      const keep = Z_WINDOW * 3;
-      if (state.shadow.length > keep) state.shadow.splice(0, state.shadow.length - keep);
-    }
-
-    // 影子战绩：各记忆半衰期档位的预测是否命中被预测者的实际出招
-    if (state.decayTargets) {
-      state.decayShadow.push(state.decayTargets.map((t) => (t === predicted ? 1 : 0)));
-      const keep = Z_WINDOW * 3;
-      if (state.decayShadow.length > keep) state.decayShadow.splice(0, state.decayShadow.length - keep);
-    }
-
-    // 影子战绩：各探索档位已在 autoTuneStep 中直接由显著性检验决定，无需再记战绩
-
-    if (result === 'draw') {
-      state.streak = { side: null, count: 0 };
-    } else if (state.streak.side === result) {
-      state.streak.count++;
-    } else {
-      state.streak = { side: result, count: 1 };
-    }
-
-    const view = predView();
-    predictor.learn(view, predicted);
-    for (const m of decayModels) m.learn(view, predicted);
-    state.history.push({ human: myMove, cpu: oppMove });
-
-    autoTuneStep();
-
-    renderScores();
-    renderArena();
-    renderPanel();
-    renderHistory();
-
-    setTimeout(() => {
-      if (state.revealed) startRound();
-    }, 850);
-  }
-
-  function resetAll() {
-    parked[state.mode] = null;      // 只重置当前玩法这一套，另一玩法的数据原样保留
-    state.history = [];
-    state.stats = { cpu: 0, human: 0, draw: 0 };
-    state.hit = 0;
-    state.hitTries = 0;
-    state.hitLog = [];
-    state.ideal = { win: 0, lose: 0 };
-    state.bestLog = [];
-    state.streak = { side: null, count: 0 };
-    state.lastResult = null;
-    state.revealedOpp = null;
-    state.picks = { opp: null, me: null };
-    state.shadow = [];
-    state.shadowTargets = null;
-    state.rateTable = null;
-    state.decayShadow = [];
-    state.decayTargets = null;
-    state.decayRateTable = null;
-    state.exploreStat = null;
-    state.predictStat = null;
-    state.predictTrust = 0;
-    predictor = newPredictor(ORDER);
-    rebuildDecayModels();
-    renderScores();
-    renderHistory();
-    startRound();
-  }
-
-  /* ------------------------------ 存档 ------------------------------ */
-
-  // 存档用 JSON（自描述、字段可增删）：
-  //   { format, version, order, mode, profiles: { duel: 段, assist: 段 } }
-  //   "段" = { params{…}, stats{…}, hit, hitTries, ideal{…}, history, hitLog }
-  //   history 仍是紧凑串（每局 2 字符：我方 + 对手），hitLog 每局 1 字符。
-  //
-  // 跨版本兼容就靠一条：读的时候只认自己认识的字段 ——
-  // 缺的用默认值补上、多的直接忽略，所以新版存档丢给旧版、旧版丢给新版都能读。
-  const SAVE_FORMAT = 'rps-ai-save';
-  const SAVE_VERSION = 3;
-
-  function buildSave() {
-    const seg = (mode) => {
-      const p = profileOf(mode);
-      if (!p) return null;                     // 该玩法没启用过：不留段
-      const f = p.fields;
-      const pr = p.params;
-      return {
-        params: {
-          alpha: pr.alpha,
-          exploreScale: pr.exploreScale,
-          explore: !!pr.explore,
-          autoTune: !!pr.autoTune,
-          confidence: pr.confidence,
-          halfLife: pr.halfLife,
-        },
-        stats: { cpu: f.stats.cpu | 0, human: f.stats.human | 0, draw: f.stats.draw | 0 },
-        hit: f.hit | 0,
-        hitTries: f.hitTries | 0,
-        ideal: { win: f.ideal.win | 0, lose: f.ideal.lose | 0 },
-        history: f.history.map((r) => r.human + r.cpu).join(''),
-        hitLog: (f.hitLog || []).join(''),
-      };
-    };
-    return JSON.stringify({
-      format: SAVE_FORMAT,
-      version: SAVE_VERSION,
-      order: ORDER,
-      mode: state.mode,
-      profiles: { duel: seg('duel'), assist: seg('assist') },
-    }, null, 2) + '\n';
-  }
-
-  /** 读一个 JSON 段；字段缺失、类型不对都退回默认值（这就是跨版本兼容的关键） */
-  function profileFromJSON(o) {
-    if (!o || typeof o !== 'object') return null;
-    const num = (v, d) => (typeof v === 'number' && isFinite(v) ? v : d);
-    const bool = (v, d) => (typeof v === 'boolean' ? v : d);
-    const hist = typeof o.history === 'string' ? o.history : '';
-    const ok = (c) => MOVES.indexOf(c) >= 0;
-    const history = [];
-    for (let i = 0; i + 1 < hist.length; i += 2) {
-      if (ok(hist[i]) && ok(hist[i + 1])) history.push({ human: hist[i], cpu: hist[i + 1] });
-    }
-    const p = o.params || {};
-    const st = o.stats || {};
-    const id = o.ideal || {};
-    return {
-      params: {
-        alpha: num(p.alpha, 1),
-        exploreScale: num(p.exploreScale, 0),
-        explore: bool(p.explore, true),
-        autoTune: bool(p.autoTune, true),
-        confidence: num(p.confidence, 1),
-        halfLife: num(p.halfLife, 16),
-      },
-      fields: {
-        history,
-        stats: { cpu: num(st.cpu, 0) | 0, human: num(st.human, 0) | 0, draw: num(st.draw, 0) | 0 },
-        hit: num(o.hit, 0) | 0,
-        hitTries: num(o.hitTries, 0) | 0,
-        hitLog: typeof o.hitLog === 'string'
-          ? o.hitLog.split('').map((c) => (c === '1' ? 1 : 0)).slice(-5000)
-          : [],
-        ideal: { win: num(id.win, 0) | 0, lose: num(id.lose, 0) | 0 },
-      },
-    };
-  }
-
-  /** 解析存档：只认 JSON（字段可增删，见上面注释） */
-  function parseSave(text) {
-    const s = String(text).replace(/^\uFEFF/, '').trim();   // 容忍 BOM 与前后空白
-    let d;
-    try {
-      d = JSON.parse(s);
-    } catch (e) {
-      throw new Error('存档内容不是合法的 JSON');
-    }
-    if (!d || typeof d !== 'object') throw new Error('存档内容不是有效的 JSON 对象');
-    const profs = d.profiles || {};
-    return {
-      order: Number(d.order) || 3,
-      mode: d.mode === 'assist' ? 'assist' : 'duel',
-      profiles: { duel: profileFromJSON(profs.duel), assist: profileFromJSON(profs.assist) },
-    };
-  }
-
-  function exportSave() {
-    const blob = new Blob([buildSave()], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `rps-${state.mode}-${new Date().toISOString().slice(0, 10)}.rps`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-  }
-
-  function importSave(file) {
-    const reader = new FileReader();
-    reader.onload = () => {
-      try {
-        applySave(parseSave(reader.result));
-      } catch (err) {
-        alert('存档导入失败：' + err.message);
-      }
-    };
-    reader.onerror = () => alert('存档读取失败');
-    reader.readAsText(file);
-  }
-
-  function applySave(d) {
-    if (!d || !d.profiles) throw new Error('格式不正确（缺少数据段）');
-
-    // 两套各自就位：目标模式那套搬进工作区，另一套留在寄存位备用
-    parked.duel = d.profiles.duel || null;
-    parked.assist = d.profiles.assist || null;
-    state.mode = d.mode === 'assist' ? 'assist' : 'duel';
-    takeProfile(state.mode);
-    state.revealed = false;
-    state.revealedMove = null;
-    state.revealedOpp = null;
-    state.picks = { opp: null, me: null };
-    state.pending = null;
-
-    syncModeUI();
-    predictor = newPredictor(ORDER);
-    predictor.replay(predView());
-    rebuildDecayModels();
-
-    autoTuneStep();
-    renderScores();
-    renderHistory();
-    startRound();
-  }
-
-  /** 参数控件可用性：自动调参接管时锁定；探索扰动关掉后探索强度也锁定 */
-  function syncParamDisabled() {
-    const auto = els.autoInput.checked;
-    const exploreOff = !els.exploreInput.checked;
-    const setLock = (el, lockedByAuto, off) => {
-      el.disabled = lockedByAuto || off;
-      el.dataset.lock = off ? 'off' : lockedByAuto ? 'auto' : '';
-    };
-    setLock(els.alphaInput, auto, false);
-    setLock(els.confInput, auto, false);
-    setLock(els.hlInput, auto, false);
-    setLock(els.epsInput, auto, exploreOff);
-  }
-
-  /** 时间加权平均：arr 由旧到新，hl 为半衰期（局）；hl = 0 时等权 */
-  function wavg(arr, hl) {
-    const n = arr.length;
-    if (!n) return 0;
-    if (!hl) return arr.reduce((a, b) => a + b, 0) / n;
-    let sw = 0;
-    let sv = 0;
-    for (let i = 0; i < n; i++) {
-      const w = Math.pow(0.5, (n - 1 - i) / hl);
-      sw += w;
-      sv += arr[i] * w;
-    }
-    return sw ? sv / sw : 0;
-  }
-
-  /** 自动调参：α 随样本量降低；探索强度 / 样本收缩 / 记忆半衰期按实测表现择优 */
-  function autoTuneStep() {
-    if (!els.autoInput.checked) return;
-
-    // α：对局越多越少平滑（越相信经验数据）
-    const total = state.history.length;
-    const alpha = Math.min(1.5, Math.max(0.3, 1.6 - total * 0.01));
-    const alphaChanged = Math.abs(alpha - predictor.options.alpha) > 1e-9;
-    predictor.options.alpha = alpha;
-    els.alphaInput.value = alpha.toFixed(1);
-    els.alphaOut.textContent = alpha.toFixed(1);
-
-    // 各档位评估统一用「当前半衰期」作为权重基准（近期对局权重更大）
-    const baseHl = Number(predictor.options.halfLife) || 0;
-
-    // 探索强度上限：只有「按最优出招」的胜率 w 显著低于随机基准 1/3，才允许开启随机。
-    // 用单侧显著性 z = (1/3 − w) / σ（σ = √(w(1−w)/n_eff)，剔除平局、按半衰期加权取 Kish 有效样本量），
-    // 再平滑映射成上限：z ≤ 1 → 0；z = 2 → 50%；z ≥ 3 → 100%。
-    // 这样“预测本来就不可靠”不会被误判成“被针对”。
-    const blog = state.bestLog.slice(-Z_WINDOW);
-    let maxExplore = 0;
-    let exploreStat = null;
-    if (blog.length >= Z_MIN_SAMPLES) {
-      let sw = 0;
-      let swh = 0;
-      let sw2 = 0;
-      for (let i = 0; i < blog.length; i++) {
-        if (blog[i] === 'draw') continue;                       // 平局剔除
-        const wt = baseHl ? Math.pow(0.5, (blog.length - 1 - i) / baseHl) : 1;
-        sw += wt;
-        sw2 += wt * wt;
-        if (blog[i] === 'cpu') swh += wt;
-      }
-      if (sw > 0) {
-        // Agresti-Coull 平滑（+2 胜 +2 负的伪计数），避免 w=0 时 σ=0 导致公式退化
-        const w = (swh + 2) / (sw + 4);
-        const nEff = sw2 ? (sw * sw) / sw2 : 0;
-        const sigma = Math.sqrt((w * (1 - w)) / (nEff + 4));
-        const z = sigma > 0 ? (1 / 3 - w) / sigma : 0;
-        maxExplore = Math.min(1, Math.max(0, (z - 1) / 2));
-        exploreStat = { w, nEff, z };
-      }
-    }
-    state.exploreCap = maxExplore;
-    state.exploreStat = exploreStat;
-    // 目标档位：不超上限的最高档
-    const allowed = EXPLORE_TIERS.filter((v) => v <= maxExplore + 1e-9);
-    const targetScale = allowed.length ? allowed[allowed.length - 1] : 0;
-
-    let scale = predictor.options.exploreScale;
-    {
-      let cur = 0;
-      for (let i = 1; i < EXPLORE_TIERS.length; i++) {
-        if (Math.abs(EXPLORE_TIERS[i] - scale) < Math.abs(EXPLORE_TIERS[cur] - scale)) cur = i;
-      }
-      const ti = EXPLORE_TIERS.indexOf(targetScale);
-      if (ti !== cur) cur += Math.sign(ti - cur);   // 每局最多移动一档
-      scale = EXPLORE_TIERS[cur];
-    }
-    els.epsInput.value = String(Math.round(scale * 100));
-    els.epsOut.textContent = Math.round(scale * 100) + '%';
-    predictor.options.exploreScale = scale;
-
-    // 样本收缩：比较各档位的「预测命中率」决定用哪一档（命中率越高 = 预测越准）。
-    // 统一以「当前半衰期」为权重基准，近期对局权重更大。
-    let z = Number(els.confInput.value);
-    const win = state.shadow.slice(-Z_WINDOW);
-    if (win.length) {
-      const rates = Z_CANDIDATES.map((_, i) => wavg(win.map((r) => r[i]), baseHl));
-      state.rateTable = Z_CANDIDATES.map((zz, i) => ({ z: zz, rate: rates[i] }));
-
-      if (win.length >= Z_MIN_SAMPLES) {
-        let best = 0;
-        for (let i = 1; i < rates.length; i++) {
-          if (rates[i] > rates[best] + 0.03) best = i;
-        }
-        let cur = 0;
-        for (let i = 1; i < Z_CANDIDATES.length; i++) {
-          if (Math.abs(Z_CANDIDATES[i] - z) < Math.abs(Z_CANDIDATES[cur] - z)) cur = i;
-        }
-        if (best !== cur) cur += Math.sign(best - cur);   // 每局最多移动一档，避免参数跳变
-        z = Z_CANDIDATES[cur];
-      }
-    } else {
-      state.rateTable = null;
-    }
-    els.confInput.value = z.toFixed(1);
-    els.confOut.textContent = z.toFixed(1);
-    predictor.options.confidence = z;
-
-    // 记忆衰减：各半衰期档位比较「预测命中率」，且各自按自己的半衰期加权（短记忆只看近期表现）
-    let hl = Number(els.hlInput.value);
-    const dwin = state.decayShadow.slice(-Z_WINDOW);
-    if (dwin.length) {
-      const drates = DECAY_TIERS.map((v, i) => wavg(dwin.map((r) => r[i]), v));
-      state.decayRateTable = DECAY_TIERS.map((v, i) => ({ hl: v, rate: drates[i] }));
-
-      if (dwin.length >= Z_MIN_SAMPLES) {
-        let best = 0;
-        for (let i = 1; i < drates.length; i++) {
-          if (drates[i] > drates[best] + 0.03) best = i;
-        }
-        let cur = 0;
-        for (let i = 1; i < DECAY_TIERS.length; i++) {
-          if (Math.abs(DECAY_TIERS[i] - hl) < Math.abs(DECAY_TIERS[cur] - hl)) cur = i;
-        }
-        if (best !== cur) cur += Math.sign(best - cur);   // 每局最多移动一档
-        hl = DECAY_TIERS[cur];
-      }
-    } else {
-      state.decayRateTable = null;
-    }
-    els.hlInput.value = String(hl);
-    els.hlOut.textContent = hl > 0 ? hl + ' 局' : '不遗忘';
-    if (predictor.options.halfLife !== hl) {
-      predictor.options.halfLife = hl;
-      predictor.replay(predView());   // 换了衰减速度，得按新规则重放历史
-    }
-
-    if (alphaChanged) predictor.replay(predView());
-  }
-
-  /**
-   * 押注判定：只有「AI 预测命中率」显著高于随机基准 1/3，才值得按最优招押注。
-   * 预测未被证明有用时，`decide` 会改按预测分布取样——argmax 是确定性函数，
-   * 靠噪声排出的「最优招」排序一旦固定，AI 就会长期出同一招，极易被反制。
-   * 与探索上限同一套口径（Agresti-Coull 平滑 + Kish 有效样本量 + 单侧 z 检验），方向相反：
-   * z ≤ 1 → 不押注（0），z = 2 → 50%，z ≥ 3 → 100%。
-   */
-  function syncPredictTrust() {
-    const hl = Number(predictor.options.halfLife) || 0;
-    const win = state.hitLog.slice(-Z_WINDOW);
-    let stat = null;
-    let trust = 0;
-    if (win.length >= Z_MIN_SAMPLES) {
-      let sw = 0;
-      let swh = 0;
-      let sw2 = 0;
-      for (let i = 0; i < win.length; i++) {
-        const wt = hl ? Math.pow(0.5, (win.length - 1 - i) / hl) : 1;
-        sw += wt;
-        sw2 += wt * wt;
-        if (win[i]) swh += wt;
-      }
-      if (sw > 0) {
-        // Agresti-Coull 平滑：+2 命中 +2 未命中，避免 w 贴近 1/3/1 时公式退化
-        const w = (swh + 2) / (sw + 4);
-        const nEff = sw2 ? (sw * sw) / sw2 : 0;
-        const sigma = Math.sqrt((w * (1 - w)) / (nEff + 4));
-        const z = sigma > 0 ? (w - 1 / 3) / sigma : 0;
-        trust = Math.min(1, Math.max(0, (z - 1) / 2));
-        stat = { w, nEff, z, trust };
-      }
-    }
-    state.predictStat = stat;
-    state.predictTrust = trust;
-    predictor.options.predictTrust = trust;
-  }
-
-  /* ------------------------------ 渲染 ------------------------------ */
+  /* ============================== 记分板 ============================== */
 
   function renderScores() {
     const total = state.stats.cpu + state.stats.human + state.stats.draw;
@@ -806,7 +43,7 @@
       els.streak.className = '';
     }
 
-    const hs = hitStats();
+    const hs = App.hitStats();
     // 提示只挂在整条（#hitRateWrap）上；#hitRate 上残留的 data-tip 要清掉，否则会弹出两条
     els.hitRate.removeAttribute('data-tip');
     els.hitRate.removeAttribute('title');
@@ -816,7 +53,7 @@
     } else {
       const a = Math.round(hs.a * 100);
       const b = Math.round((hs.b == null ? hs.a : hs.b) * 100);
-      const hl = Number(predictor.options.halfLife) || 0;
+      const hl = Number(App.predictor.options.halfLife) || 0;
       const hlText = hl > 0 ? `半衰期 ${hl} 局` : '不遗忘（等同全部统计）';
       els.hitRate.textContent = `${b}%`;
       els.hitRateWrap.title = tx('AI 预测命中率：AI 对你下一招的预测命中你实际出招的比例（与电脑实际出招无关）。'
@@ -829,12 +66,14 @@
       : '—';
   }
 
+  /* ============================== 对战区 ============================== */
+
   function renderArena() {
     const pending = state.pending;
     const assist = isAssist();
     // 对手的招：揭示后看本局实际出招，否则看辅助模式里已补录的那一招
     const oppShown = state.revealed ? state.revealedOpp : (assist ? state.picks.opp : null);
-    // 我方的招：辅助模式下默认照 AI 推荐（bestCpu），玩家可以在下方三颗按铀上改选；
+    // 我方的招：辅助模式下默认照 AI 推荐（bestCpu），玩家可以在下方三颗按钮上改选；
     // 对战模式下等玩家点。即使暂时没有可信依据也必须给出确定的一招 —— 我方就是照它出的。
     // 期望收益并列最高时（pending.bestTies）这几招都算「AI 推荐」；默认候选是其中随机的一个
     const advisedTies = assist && !state.revealed && pending.weightSum > 0
@@ -916,7 +155,7 @@
         `AI 取「期望收益最高」（赢面 − 输面）的一招出，标签列出它据以判断的${oppName()}出招概率。`
         + '多数时候它就是克制最高概率项的那招，所以只列一项；若多列了一项，'
         + '说明出最高项本身比克制它更划算。若两招期望收益完全相同，则并列给出，'
-        + '默认候选在两者间随机。下方三颗按铀可以改选我方出招，不改就按 AI 推荐出。');
+        + '默认候选在两者间随机。下方三颗按钮可以改选我方出招，不改就按 AI 推荐出。');
     } else {
       els.humanTag.removeAttribute('title');
       els.humanTag.removeAttribute('data-tip');
@@ -1032,9 +271,7 @@
     });
   }
 
-  function pctText(p) {
-    return (p * 100).toFixed(0) + '%';
-  }
+  /* ============================== 分析面板 ============================== */
 
   function renderPanel() {
     renderCompare();      // 参数面板里的档位对比/探索判定独立于分析面板，随时保持最新
@@ -1102,8 +339,8 @@
 
     // 标准明细（默认按应验率降序；未匹配沉底；随机基线也参与排序）
     const ordered = breakdown.slice();
-    if (panelSort === 'weight' || panelSort === 'acc') {
-      const key = panelSort === 'weight' ? 'share' : 'accuracy';
+    if (App.panelSort === 'weight' || App.panelSort === 'acc') {
+      const key = App.panelSort === 'weight' ? 'share' : 'accuracy';
       ordered.sort((a, b) => {
         if (a.matched !== b.matched) return a.matched ? -1 : 1;
         return (b[key] || 0) - (a[key] || 0);
@@ -1179,7 +416,7 @@
       .join('');
   }
 
-  /** 档位胜率对比：一行一个档位（标签 · 条形 · 胜率），当前档位高亮；rate 为空时留空 */
+  /** 档位对比的一行（标签 · 条形 · 数值），rate 为 null 时留空 */
   const cmpRow = (k, rate, on) => {
     const has = rate != null;
     return `<div class="cmp-row${on ? ' on' : ''}"><span class="cmp-k">${k}</span>` +
@@ -1207,21 +444,21 @@
     return { top, tip };
   }
 
-  /** 各档位的电脑胜率对比（自动调参依据） */
+  /** 各档位的命中率对比（自动调参依据）与两项显著性判定 */
   function renderCompare() {
     if (!els.confCompare) return;
-    const win = state.shadow.slice(-Z_WINDOW);
+    const win = state.shadow.slice(-App.Z_WINDOW);
     const t = state.rateTable;
     const cur = Number(els.confInput.value) || 0;
     els.confCompare.innerHTML = cmpTitle('收缩档位命中率', win.length, tx('预测命中率 = 该档位对下一招的预测命中你实际出招的比例（以当前半衰期为权重基准）')) +
-      Z_CANDIDATES.map((zz, i) => cmpRow(String(zz), t ? t[i].rate : null, Math.abs(zz - cur) < 1e-9)).join('');
+      App.Z_CANDIDATES.map((zz, i) => cmpRow(String(zz), t ? t[i].rate : null, Math.abs(zz - cur) < 1e-9)).join('');
 
     if (els.hlCompare) {
-      const dwin = state.decayShadow.slice(-Z_WINDOW);
+      const dwin = state.decayShadow.slice(-App.Z_WINDOW);
       const dt = state.decayRateTable;
       const curHl = Number(els.hlInput.value) || 0;
       els.hlCompare.innerHTML = cmpTitle('记忆半衰期命中率', dwin.length, tx('预测命中率 = 该档位对下一招的预测命中你实际出招的比例（各档位按自身半衰期加权）')) +
-        DECAY_TIERS.map((v, i) => cmpRow(v > 0 ? v + ' 局' : '不遗忘', dt ? dt[i].rate : null, v === curHl)).join('');
+        App.DECAY_TIERS.map((v, i) => cmpRow(v > 0 ? v + ' 局' : '不遗忘', dt ? dt[i].rate : null, v === curHl)).join('');
     }
 
     if (!els.exploreCompare) return;
@@ -1230,7 +467,7 @@
     const pd = state.pending;
     const epsInfo = pd ? epsBreakdown(pd) : null;
     els.exploreCompare.innerHTML =
-      cmpTitle('探索上限判定', state.bestLog.slice(-Z_WINDOW).length,
+      cmpTitle('探索上限判定', state.bestLog.slice(-App.Z_WINDOW).length,
         isAssist()
           ? '决定 AI 最多能掺多少「纯随机出招」。只有当对手已经看穿它、它老老实实按预测出招反而赢不了的时候（胜率明显低于瞎猜的 33%），才会开始掺随机。注意：这个上限只管「探索强度」这一项。'
           : tx('决定 AI 最多能掺多少「纯随机出招」。只有当你已经看穿它、它老老实实按预测出招反而赢不了的时候（胜率明显低于瞎猜的 33%），才会开始掺随机。'
@@ -1245,7 +482,7 @@
     const ps = state.predictStat;
     const tp = Math.round((state.predictTrust || 0) * 100);
     els.predictCompare.innerHTML =
-      cmpTitle('押注判定', state.hitLog.slice(-Z_WINDOW).length,
+      cmpTitle('押注判定', state.hitLog.slice(-App.Z_WINDOW).length,
         isAssist()
           ? '辅助模式下 AI 不亲自出招（只给建议），这里展示的是模型内部的押注策略指标，仅供观察。'
           : tx('决定 AI 要不要「押注」自己的预测。只有预测被证明确实比瞎猜准时，它才会挑期望收益最高的那招出；否则按预测分布随机取一招，避免总出同一招被你看穿。')) +
@@ -1255,36 +492,15 @@
       `<div class="exp-row" data-tip="${tx('本局有多大概率直接押注最优招，剩下的概率按预测分布取样（出招仍偏向它认为你更可能出的那一招，只是不再固定）。')}"><span>押注概率</span><b>${tp}%</b></div>`;
   }
 
+  /* ============================== 不可预测性评估 ============================== */
+
   /**
    * 不可预测性评估：直接套用 AI 自己的「预测命中率」当尺子。
    * 33%（随机基线）= 满分；命中率越高，说明你的出招越容易被抓住。
    */
-  /**
-   * AI 预测命中率（两种口径）：
-   *   a = 全部统计（所有对局等权）
-   *   b = 按半衰期加权（近局权重更大；halfLife = 0 不遗忘时等同 a）
-   *   n = 加权有效样本量（Kish 有效样本数 (Σw)² / Σw²）
-   */
-  function hitStats() {
-    const a = state.hitTries ? state.hit / state.hitTries : null;
-    const hl = Number(predictor.options.halfLife) || 0;
-    const len = state.hitLog.length;
-    if (!hl || !len) return { a, b: a, n: state.hitTries };
-    let sw = 0;
-    let swh = 0;
-    let sw2 = 0;
-    for (let i = 0; i < len; i++) {
-      const w = Math.pow(0.5, (len - 1 - i) / hl);
-      sw += w;
-      sw2 += w * w;
-      swh += w * state.hitLog[i];
-    }
-    return { a, b: sw ? swh / sw : a, n: sw2 ? (sw * sw) / sw2 : state.hitTries };
-  }
-
   function randomnessReport() {
     // 命中率按「半衰期加权」口径（近局权重更大），与记分板里的 B 值一致
-    const hs = hitStats();
+    const hs = App.hitStats();
     const n = hs.n;
     if (!(n >= 12)) return null;
 
@@ -1293,7 +509,7 @@
     // 挑「收缩后应验率」最高的标准 = 你最容易被抓的破绽（小样本会被压向 1/3，避免噪声误报）
     let best = null;
     let bestAdj = 0;
-    for (const e of predictor.experts) {
+    for (const e of App.predictor.experts) {
       if (e.baseline || e.tries < 3) continue;
       const adj = 1 / 3 + (e.accuracy - 1 / 3) * (e.tries / (e.tries + 6));
       if (adj > bestAdj) {
@@ -1371,7 +587,7 @@
                 : r.score >= 35 ? '规律较明显，AI 已能有效利用'
                   : '规律显著，极易被针对';
     const delta = r.best ? Math.round((r.best.accuracy - 1 / 3) * 100) : 0;
-    const hl = Number(predictor.options.halfLife) || 0;
+    const hl = Number(App.predictor.options.halfLife) || 0;
     const hlNote = hl > 0 ? `（半衰期 ${hl} 局）` : '（全部统计）';
     // 与随机基准 33% 的差值（百分点）
     const diffPct = (r.hitRate - 1 / 3) * 100;
@@ -1408,7 +624,7 @@
       <div class="rand-note">命中率按<b>半衰期加权</b>口径（近局权重更大）：z > 0（高于 1/3）扣分、最低 0；z < −0.5（明显低于 1/3）加分、最高 150（当前 z = ${r.z.toFixed(2)}，有效样本 ${Math.round(r.n)} 局）。</div>`;
   }
 
-  /* ------------------------------ 对局记录 ------------------------------ */
+  /* ============================== 对局记录 ============================== */
 
   function renderHistory() {
     const recs = state.history;
@@ -1439,7 +655,7 @@
     els.historyStats.innerHTML = `最近 <b>${last10.length}</b> 局：${meName()} <b>${win}</b> 胜 <b>${draw}</b> 平 <b>${lose}</b> 负`;
   }
 
-  /* ------------------------------ NIST SP 800-22 ------------------------------ */
+  /* ============================== NIST SP 800-22 ============================== */
 
   /** 把出招序列编码成比特流并跑完整 15 项检验，渲染成报告 */
   function renderNist() {
@@ -1450,7 +666,7 @@
         + '样本太少时几乎必然满分，没有参考价值，所以不做检测。</div>';
       return;
     }
-    const bits = NIST.buildBits(predView());
+    const bits = NIST.buildBits(App.predView());
     // 零分布标定：生成同长度、同编码的真随机序列作对照
     const resample = () => {
       const h = new Array(n);
@@ -1528,232 +744,8 @@
       </table>`;
   }
 
-  /* ------------------------------ 模式切换 ------------------------------ */
-
-  /**
-   * 静态文案按模式切换：元素带 data-raw（文本）/ data-raw-tip（提示）时，
-   * 以该属性为「未交换过的原文」写入当前模式下的文案 —— 原文只存一份，反复调用安全。
-   */
-  function applyTerms() {
-    document.querySelectorAll('[data-raw]').forEach((el) => {
-      el.textContent = tx(el.dataset.raw);
-    });
-    document.querySelectorAll('[data-raw-tip]').forEach((el) => {
-      el.setAttribute('data-tip', tx(el.dataset.rawTip));
-      el.removeAttribute('title');
-    });
-  }
-
-  /** 把当前模式反映到界面：按钮文案、录入区显隐、全部称谓 */
-  function syncModeUI() {
-    els.arena.dataset.mode = state.mode;
-    els.modeName.textContent = MODE_LABEL[state.mode];
-    els.cpuPick.hidden = !isAssist();
-    // 「我方 / 对手」的称谓不走互换（互换针对的是「被预测者 / cpu 侧」），直接按模式写
-    els.oppAvatar.textContent = isAssist() ? '对手' : 'AI';
-    els.cpuLabel.textContent = `${oppName()}胜率`;
-    els.oppPickLabel.textContent = `${oppName()}出了`;
-    // 小格（上一轮对面的出招）的提示由 renderLast() 按当轮数据写，这里不再写死：
-    // 两种模式下看的是不同的人（对战看电脑、辅助看真人对手），但措辞跟着 oppName() 走
-    els.meAvatar.textContent = meName();
-    // 辅助模式下两侧都去掉「的」，与「对手胜率」保持句式一致
-    els.humanLabel.textContent = isAssist() ? '我方胜率' : '你的胜率';
-    els.modeBtn.setAttribute('data-tip', isAssist()
-      ? 'AI 替你出招（点击切换到对战模式）'
-      : '你 vs AI（点击切换到辅助模式）');
-    applyTerms();
-    togglePanel(isAssist());   // 面板默认状态：辅助模式展开（要边出边看预测依据），对战模式收起
-  }
-
-  /** 切换玩法：两种模式的数据与参数各自独立 —— 切走先寄存、切回原样取回 */
-  function setMode(mode) {
-    if (mode === state.mode) return;
-    parkProfile();                 // 当前这套先寄好
-    state.mode = mode;
-    takeProfile(mode);             // 目标那套取回来（首次进入 = 干净的一份 + 默认参数）
-    state.revealed = false;
-    state.revealedMove = null;
-    state.revealedOpp = null;
-    state.picks = { opp: null, me: null };
-    state.pending = null;
-    syncModeUI();
-    predictor = newPredictor(ORDER);
-    predictor.replay(predView());
-    rebuildDecayModels();
-    renderScores();
-    renderHistory();
-    startRound();
-  }
-
-  /* ------------------------------ 事件 ------------------------------ */
-
-  /** 辅助模式：补录对手（真人）的实际出招 —— 录完立刻结算 */
-  function pickOpp(move) {
-    if (state.revealed || !isAssist()) return;
-    state.picks.opp = move;
-    commitRound();
-  }
-
-  /** 辅助模式：改选我方本轮的出招（不改就按 AI 推荐出） */
-  function chooseMyMove(move) {
-    if (state.revealed || !isAssist()) return;
-    state.picks.me = move;
-    renderArena();
-  }
-
-  els.choices.addEventListener('click', (ev) => {
-    const btn = ev.target.closest('.choice');
-    if (!btn) return;
-    // 辅助模式：三颗按铀是「我方出什么」，可以不听 AI 的改选
-    if (isAssist()) chooseMyMove(btn.dataset.move);
-    else play(btn.dataset.move);
+  Object.assign(App, {
+    renderScores, renderArena, renderPanel, renderCompare,
+    renderRandomness, renderHistory, renderNist, epsBreakdown,
   });
-
-  els.cpuPick.addEventListener('click', (ev) => {
-    const btn = ev.target.closest('.pick');
-    if (btn) pickOpp(btn.dataset.move);
-  });
-
-  els.modeBtn.addEventListener('click', () => setMode(isAssist() ? 'duel' : 'assist'));
-
-  document.addEventListener('keydown', (ev) => {
-    if (ev.target.tagName === 'INPUT') return;
-    if (ev.key === 'Escape' && !els.nistModal.hidden) {
-      els.nistModal.hidden = true;
-      return;
-    }
-    if (!els.nistModal.hidden) return;
-    const idx = ['1', '2', '3'].indexOf(ev.key);
-    if (idx >= 0) {
-      ev.preventDefault();
-      if (isAssist()) pickOpp(MOVES[idx]);   // 辅助模式：数字键补录「对手」的招
-      else play(MOVES[idx]);
-    }
-  });
-
-  els.resetBtn.addEventListener('click', resetAll);
-  els.nistBtn.addEventListener('click', () => {
-    els.nistModal.hidden = false;
-    els.nistBody.innerHTML = '<div class="nist-loading">正在跑 15 项检验（累积和拆正向/反向共 16 行）+ 200 次零分布标定…</div>';
-    setTimeout(renderNist, 30);
-  });
-  els.nistClose.addEventListener('click', () => { els.nistModal.hidden = true; });
-  els.nistBackdrop.addEventListener('click', () => { els.nistModal.hidden = true; });
-  els.exportBtn.addEventListener('click', exportSave);
-  els.importBtn.addEventListener('click', () => els.importFile.click());
-  els.importFile.addEventListener('change', (ev) => {
-    const f = ev.target.files && ev.target.files[0];
-    if (f) importSave(f);
-    ev.target.value = '';
-  });
-
-  els.confInput.addEventListener('input', () => {
-    const v = Number(els.confInput.value);
-    els.confOut.textContent = v.toFixed(1);
-    predictor.options.confidence = v;
-    startRound();
-  });
-
-  els.hlInput.addEventListener('input', () => {
-    const v = Number(els.hlInput.value);
-    els.hlOut.textContent = v > 0 ? v + ' 局' : '不遗忘';
-    predictor.options.halfLife = v;
-    predictor.replay(predView());
-    renderScores();
-    startRound();
-  });
-
-  els.alphaInput.addEventListener('input', () => {
-    const v = Number(els.alphaInput.value);
-    els.alphaOut.textContent = v.toFixed(1);
-    predictor.options.alpha = v;
-    predictor.replay(predView());
-    startRound();
-  });
-
-  els.epsInput.addEventListener('input', () => {
-    const v = Number(els.epsInput.value) / 100;
-    els.epsOut.textContent = Math.round(v * 100) + '%';
-    predictor.options.exploreScale = v;
-    startRound();
-  });
-
-  els.exploreInput.addEventListener('change', () => {
-    predictor.options.explore = els.exploreInput.checked;
-    syncParamDisabled();
-    startRound();
-  });
-
-  els.autoInput.addEventListener('change', () => {
-    const on = els.autoInput.checked;
-    syncParamDisabled();
-    if (on) autoTuneStep();
-    startRound();
-  });
-
-  els.paramReset.addEventListener('click', () => {
-    // 恢复默认：自动调参开、探索扰动开，参数交由自动逻辑接管
-    els.autoInput.checked = true;
-    els.exploreInput.checked = true;
-    predictor.options.explore = true;
-    predictor.options.exploreScale = 0.1;
-    els.epsInput.value = '10';
-    els.epsOut.textContent = '10%';
-    syncParamDisabled();
-    autoTuneStep();
-    startRound();
-  });
-
-  function togglePanel(show) {
-    const open = show === undefined ? els.panel.hidden : show;
-    els.panel.hidden = !open;
-    els.layout.classList.toggle('with-panel', open);
-    els.panelBtn.textContent = open ? '隐藏分析面板' : '显示分析面板';
-    if (open) renderPanel();
-  }
-
-  els.panelBtn.addEventListener('click', () => togglePanel());
-  els.panelClose.addEventListener('click', () => togglePanel(false));
-
-  els.sortSeg.addEventListener('click', (ev) => {
-    const btn = ev.target.closest('button');
-    if (!btn) return;
-    panelSort = btn.dataset.sort;
-    els.sortSeg.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === btn));
-    renderPanel();
-  });
-
-  /* ------------------------------ 启动 ------------------------------ */
-
-  /** 统一悬浮提示：把原生 title 转成自定义 data-tip（立即显示、样式一致） */
-  function initTooltips() {
-    const convert = (el) => {
-      if (!el.hasAttribute || !el.hasAttribute('title')) return;
-      const t = el.getAttribute('title');
-      el.removeAttribute('title');
-      if (t) el.setAttribute('data-tip', t);
-    };
-    document.querySelectorAll('[title]').forEach(convert);
-    new MutationObserver((muts) => {
-      for (const m of muts) {
-        if (m.type === 'attributes') { convert(m.target); continue; }
-        for (const n of m.addedNodes) {
-          if (n.nodeType !== 1) continue;
-          convert(n);
-          if (n.querySelectorAll) n.querySelectorAll('[title]').forEach(convert);
-        }
-      }
-    }).observe(document.body, {
-      childList: true, subtree: true, attributes: true, attributeFilter: ['title'],
-    });
-  }
-
-  initTooltips();
-  syncModeUI();
-  renderScores();
-  renderHistory();
-  syncParamDisabled();
-  rebuildDecayModels();
-  autoTuneStep();
-  startRound();
-})();
+})(window);
