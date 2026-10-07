@@ -25,7 +25,7 @@
   const EXPLORE_TIERS = [0, 0.1, 0.2, 0.35, 0.5, 0.7, 1];
 
   const SAVE_FORMAT = 'rps-ai-save';
-  const SAVE_VERSION = 3;
+  const SAVE_VERSION = 5;                    // 5：档案改按「被预测者的名字」分（`p:名字`），不再按模式分
 
   // 每种玩法各自寄存的累积字段 —— 局内的（pending / revealed / picks …）每局都会重来，不必存
   const PROFILE_FIELDS = [
@@ -62,6 +62,12 @@
     resultBanner: $('resultBanner'),
     modeBtn: $('modeBtn'),
     modeName: $('modeName'),
+    nameBox: $('nameBox'),
+    nameInput: $('nameInput'),
+    nameMenu: $('nameMenu'),
+    nameSave: $('nameSaveBtn'),
+    nameClear: $('nameClearBtn'),
+    nameToast: $('nameToast'),
     meAvatar: $('meAvatar'),
     oppAvatar: $('oppAvatar'),
     oppPickLabel: $('oppPickLabel'),
@@ -128,12 +134,16 @@
     predictStat: null,                 // 押注判定的过程 { w, nEff, z, trust }
     predictTrust: 0,                   // 押注概率（0 = 预测不显著，改按分布取样）
     mode: 'duel',                      // 'duel' 对战模式 | 'assist' 辅助模式
+    userName: '',                      // 对战模式的「我」的名字（'' = 没起名）
+    opponent: '',                      // 辅助模式的对手名字（'' = 没起名）
+    key: 'duel',                       // 当前工作区对应的档案键（见 profileKey）
+    seq: 0,                            // 「最近玩过」的序号，越大越新（名字框候选按它排序）
     picks: { opp: null, me: null },    // 辅助模式：本局补录的对手出招（我方出招默认 AI 推荐，可改选）
     revealedOpp: null,                 // 本局对手的实际出招（揭示时展示）
   };
 
-  // 不在用的那一套（null = 还没启用过）
-  const parked = { duel: null, assist: null };
+  // 不在用的那些档案：键见 profileKey（`p:名字` / 'duel' / 'assist'），切走时才写入
+  const parked = {};
 
   /* ============================== 文本 / 称谓 ============================== */
 
@@ -141,9 +151,10 @@
 
   /**
    * 两种模式下「我方（human 字段）」与「对手（cpu 字段）」的称呼：
-   *   duel   —— 我方 = 你；对手 = 电脑（AI）
-   *   assist —— 我方 = 我方；对手 = 对手（真人，不再叫「电脑」）
-   * 说明文案统一按 duel 的口径写（「你」= 被预测者、「电脑」= cpu 字段那侧），
+   *   我方   —— 对战模式是「人类」（起过名字就用名字）；辅助模式**恒为「我方」**（只是个无身份的
+   *             占位：AI 替其出招的那一侧，名字框在辅助模式指的是对手，与它无关）
+   *   对手   —— 对战模式是「电脑」（AI）；辅助模式是真人「对手」（不再叫「电脑」）
+   * 说明文案统一按 duel 的口径写（「人类」= 被预测者、「电脑」= cpu 字段那侧），
    * 切到辅助模式时用 tx() 把角色词换掉；另外「人类」在辅助模式下改称「对手」。
    */
   function tx(s) {
@@ -162,11 +173,77 @@
       : state.history;
   }
 
-  /** 我方（human 字段一方）的称谓：对战模式是「你」，辅助模式是「我方」 */
-  const meName = () => (isAssist() ? '我方' : '你');
+  /**
+   * 我方（human 字段一方）的称谓：对战模式是「人类」（起过名字就用名字）；
+   * 辅助模式恒为「我方」—— 那里它是无身份的占位，起名字（名字框填的是对手）不该影响它
+   */
+  const meName = () => (isAssist() ? '我方' : state.userName || '人类');
 
-  /** 对手（cpu 字段一方）的称谓：对战模式是「电脑」，辅助模式是「对手」（真人） */
-  const oppName = () => (isAssist() ? '对手' : '电脑');
+  /** 对手（cpu 字段一方）的称谓：对战模式是「电脑」，辅助模式是真人对手（起了名字就用名字） */
+  const oppName = () => (isAssist() ? (state.opponent || '对手') : '电脑');
+
+  /* ============================== 档案身份 ============================== */
+
+  // 名字长度上限（与输入框的 maxlength 保持一致）
+  const NAME_MAX = 8;
+
+  /** 规范化名字：去首尾空白、内部空白压成一个空格、截断到上限 */
+  const cleanName = (s) => String(s == null ? '' : s).trim().replace(/\s+/g, ' ').slice(0, NAME_MAX);
+
+  /**
+   * 「被预测者」的名字 —— 档案就是按这个人分的：
+   *   对战模式：坐在屏幕前的人就是被预测者，名字框里填的「我的名字」就是他的名
+   *   辅助模式：被预测的是对手
+   * 所以两种模式填同一个名字，就是同一份数据 —— 同一个人在两种玩法下的记录会累积到一起，
+   * 模型也一起学（对他来说，对面坐的是 AI 还是你，都是「对手」）。
+   */
+  const predictedName = () => (isAssist() ? state.opponent : state.userName);
+
+  /** 名字对应的档案键：`p:名字`；没起名字就退回按模式的默认档（对战 / 辅助各一份） */
+  function profileKey(mode, userName, opponent) {
+    const n = cleanName(mode === 'assist' ? opponent : userName);
+    if (n) return 'p:' + n;
+    return mode === 'assist' ? 'assist' : 'duel';
+  }
+
+  /** 当前该用哪份档案（按现在的名字算） */
+  const currentKey = () => profileKey(state.mode, state.userName, state.opponent);
+
+  /** 已经记过的名字（给名字框当候选），**最近玩过的排前面** */
+  function knownNames() {
+    const seqOf = new Map();
+    const put = (name, seq) => {
+      const prev = seqOf.get(name);
+      if (prev == null || seq > prev) seqOf.set(name, seq);
+    };
+    for (const k of Object.keys(parked)) {
+      if (k.indexOf('p:') === 0 && parked[k]) put(k.slice(2), parked[k].seq || 0);
+    }
+    const cur = cleanName(predictedName());
+    if (cur) put(cur, state.seq || 0);
+    return [...seqOf.entries()].sort((a, b) => b[1] - a[1]).map(([n]) => n);
+  }
+
+  // 档案「最近玩过」的先后：单调递增，越大越新
+  let seqCounter = 0;
+
+  /** 标记当前这份刚玩过（每局结算后调用，供候选列表排序） */
+  function bumpActivity() { state.seq = ++seqCounter; }
+
+  /**
+   * 交换一套档案里「我方 / 对方」两列的字段。
+   * 档案统一按「被预测者在先」存（预测器要的就是这一口径），而辅助模式的现场是
+   * 「我方 / 对手」—— 同一份数据在两边指的是不同的人，存取时得翻一下。
+   * 两种口径互为镜像：翻两次正好回到原样。
+   */
+  function flipFields(f) {
+    f.history = f.history.map((r) => ({ human: r.cpu, cpu: r.human }));
+    f.stats = { human: f.stats.cpu, cpu: f.stats.human, draw: f.stats.draw };
+    const st = f.streak || {};
+    f.streak = { side: st.side === 'human' ? 'cpu' : st.side === 'cpu' ? 'human' : null, count: st.count || 0 };
+    f.lastResult = f.lastResult === 'human' ? 'cpu' : f.lastResult === 'cpu' ? 'human' : f.lastResult;
+    return f;
+  }
 
   /* ============================== 参数 ============================== */
 
@@ -246,31 +323,45 @@
   /** 把一套资料装进当前工作区（p 为 null 就给干净的一份 + 默认参数） */
   function setProfileIntoState(p) {
     Object.assign(state, emptyProfile());
+    state.seq = (p && p.seq) || 0;        // 每份数据各自的「最近玩过」序号
     if (p) {
       Object.assign(state, p.fields);
-      writeParams(p.params);
+      writeParams(p.params || DEFAULT_PARAMS);   // 存档被手改过（缺 params）时也起得来
     } else {
       writeParams(DEFAULT_PARAMS);
     }
   }
 
-  /** 取某个玩法的快照：当前模式看现场，另一个看寄存位 */
-  function profileOf(mode) {
-    if (mode === state.mode) return { fields: state, params: readParams() };
-    return parked[mode];
+  /** 这个键是不是「有名字」的那一份（`p:名字`）；没名字的默认档（'duel' / 'assist'）不算 */
+  const isNamedKey = (key) => typeof key === 'string' && key.indexOf('p:') === 0;
+
+  /** 取某份档案的快照：当前工作区看现场，其余看寄存位 */
+  function profileOf(key) {
+    if (key === state.key) return { fields: state, params: readParams(), seq: state.seq };
+    return parked[key] || null;
   }
 
-  /** 把当前这套寄存起来（切走前调用） */
+  /**
+   * 把当前这套寄存起来（切走前调用）；辅助模式的现场要翻成「被预测者在先」再存。
+   * 没名字的那份不进档案表 —— 它没有身份，切走就等于丢掉（想留下来就手动导出存档）。
+   */
   function parkProfile() {
+    if (!isNamedKey(state.key)) return;
     const fields = {};
     for (const k of PROFILE_FIELDS) fields[k] = state[k];
-    parked[state.mode] = { fields, params: readParams() };
+    parked[state.key] = { fields: isAssist() ? flipFields(fields) : fields, params: readParams(), seq: state.seq };
   }
 
-  /** 把某个玩法那套搬进工作区（寄存位随之清空；没存过就是干净的一份） */
-  function takeProfile(mode) {
-    const p = parked[mode] || null;
-    parked[mode] = null;
+  /**
+   * 把某份档案搬进工作区（寄存位随之清空；没存过就是干净的一份 + 默认参数）。
+   * 没名字的键不给读（forceRead = 手动导入存档时例外），所以切模式/换名字时它总是从空白开始。
+   */
+  function takeProfile(key, forceRead) {
+    const p = isNamedKey(key) || forceRead ? parked[key] || null : null;
+    delete parked[key];
+    state.key = key;
+    // 档案里是「被预测者在先」，辅助模式的现场要翻回去（对战模式两边口径本来就一致）
+    if (p && isAssist()) flipFields(p.fields);
     setProfileIntoState(p);
   }
 
@@ -282,6 +373,24 @@
       new Predictor(ORDER, Object.assign(readOptions(), { halfLife: hl }))
     );
     for (const m of app.decayModels) m.replay(predView());
+  }
+
+  /**
+   * 把主模型的当前参数同步给各半衰期档位模型。
+   * 这些模型只在「建模型那一刻」抓过一次参数，而主模型的 α / 样本收缩 / 探索强度会被
+   * 自动调参逐局改动 —— 不同步的话，面板上比的就不是「同一套参数下谁记性更好」，
+   * 而是「两套不同参数的模型谁碰巧更准」，结论没有意义。
+   * @param replay 是否需要回放历史（α 变了就必须，它会改变各标准的平滑程度）
+   */
+  function syncDecayModels(replay) {
+    const o = readOptions();
+    for (const m of app.decayModels) {
+      m.options.alpha = o.alpha;
+      m.options.confidence = o.confidence;
+      m.options.explore = o.explore;
+      m.options.exploreScale = o.exploreScale;   // halfLife 各自保留档位值，不覆盖
+      if (replay) m.replay(predView());
+    }
   }
 
   /* ============================== 导出 ============================== */
@@ -297,6 +406,8 @@
     panelSort: 'weight',
     // 文本 / 称谓
     isAssist, tx, predView, meName, oppName,
+    // 档案身份
+    NAME_MAX, cleanName, predictedName, profileKey, currentKey, knownNames, isNamedKey, flipFields, bumpActivity,
     // 参数
     readOptions, readParams, writeParams, syncParamDisabled, newPredictor, DEFAULT_PARAMS,
     // 档案

@@ -1031,12 +1031,18 @@ table.criteria tr.baseline td { font-weight: 600; }
 
 /* ================= 模式切换 & 辅助模式 ================= */
 
-/* ---------- 模式切换按钮：对战区右上角，与左上角工具栏对称 ---------- */
-.mode-toggle {
+/* ---------- 模式切换按钮 + 名字框：对战区右上角，与左上角工具栏对称 ---------- */
+.mode-wrap {
   position: absolute;
   top: 9px;
   right: 9px;
-  z-index: 2;
+  /* 比卡片 hover 时的 z-index: 5 高：名字候选浮层要能盖在相邻卡片上 */
+  z-index: 6;
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+.mode-toggle {
   display: flex;
   align-items: center;
   /* 单行文案，上下padding 对称 */
@@ -1060,6 +1066,216 @@ table.criteria tr.baseline td { font-weight: 600; }
 /* 按钮贴在最右侧，提示若按默认的 left:0 向右展开会溢出到分析面板底下被盖住；
    这里改成右对齐、向左展开（特异性高于全局 [data-tip]:hover::after） */
 .mode-toggle[data-tip]:hover::after { left: auto; right: 0; }
+
+/* ---------- 名字框：与模式按钮同一组，一框两用（对战 = 我的名字，辅助 = 对手名字） ----------
+   整颗胶囊就是输入框（里面没有再套一层小胶囊：套两层会显得零碎），
+   身份写进占位文字（「我的名字」/「对手名字」）——比在框里摆一个「我」字清楚得多。 */
+.name-box {
+  /* 候选浮层挂在这上面：这样它才能对齐到输入框正下方（不是整组控件的右边缘） */
+  position: relative;
+  display: flex;
+  padding: 0;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: calc(var(--radius) - 9px);
+  opacity: 0.74;
+  transition: opacity 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+}
+.name-box:hover,
+.name-box:focus-within { opacity: 1; border-color: rgba(123, 108, 255, 0.55); background: rgba(123, 108, 255, 0.16); }
+.name-box > input {
+  /* 右边那颗「保存」占掉一截，这里相应缩窄，整条胶囊不至于长得像个搜索框 */
+  width: 104px;
+  /* 上下 padding 与模式按钮齐平：两颗胶囊等高 */
+  padding: 8px 12px;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  outline: none;
+}
+/* 聚焦不再给输入框套一圈内描边（会把它画成一个框里的框）：外层胶囊已经变亮，够表达了 */
+.name-box > input::placeholder { color: var(--muted); font-weight: 400; letter-spacing: 0; }
+/* 框内的「保存」：尺寸压到最小（它是框里的次要动作，不跟输入的文字抢视线）。
+   只在改过字（框里内容 ≠ 已生效的名字）时才露出来 —— 平时用 visibility 藏住而不是 display:none，
+   位置一直占着，按钮一出一收不会把输入框推来推去。 */
+.name-box > .name-save {
+  flex: none;
+  align-self: center;
+  margin-right: 4px;
+  padding: 0 5px;
+  height: 18px;
+  border: 0;
+  border-radius: 5px;
+  background: rgba(123, 108, 255, 0.6);
+  color: #fff;
+  font-family: inherit;
+  font-size: 10px;
+  letter-spacing: 0.3px;
+  cursor: pointer;
+  visibility: hidden;
+  transition: background 0.15s ease;
+}
+.name-box.dirty > .name-save { visibility: visible; }
+.name-box > .name-save:hover { background: rgba(123, 108, 255, 0.92); }
+/* 框内的「×」：与「保存」共用同一个槽位（绝对定位盖在它上面），两者互斥 ——
+   有未保存的编辑时露出「保存」，没在编辑、框里又确实有名字时换成这个「×」。
+   外观向候选列表里那枚删除「×」看齐：红底白叉、6px 圆角的小方块，
+   指针移到框上就完整现形，悬停本体再压深一档。
+   叉用描边图标而不是文字：文本的「×」在行框里天生偏上（乘号位于 x 高度区），
+   几何上再准也会看着歪；图标与按钮同为 1:1 的盒子，grid 居中即真正居中。 */
+.name-box > .name-clear {
+  position: absolute;
+  top: 50%;
+  right: 9px;                 /* 与 30px 宽的「保存」对齐中心 */
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: rgba(255, 107, 129, 0.5);
+  color: #fff;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease, background 0.15s ease;
+}
+.name-box > .name-clear > svg {
+  width: 9px;
+  height: 9px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+}
+.name-box.can-clear:hover > .name-clear { opacity: 1; pointer-events: auto; }
+.name-box > .name-clear:hover { background: rgba(255, 107, 129, 0.8); }
+/* 名字没保存上的小通知：贴在名字框正下方浮一会儿（跟候选列表同一位置，两者不会同时出现）。
+   名字框贴着右上角，所以向右展开会出屏 —— 改成右对齐、向左展开，并让它不吃鼠标事件。 */
+.name-toast {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 41;
+  padding: 5px 10px;
+  border-radius: 10px;
+  background: #2b1a24;
+  border: 1px solid rgba(255, 107, 129, 0.45);
+  color: #ffc9d2;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+.name-toast.show { opacity: 1; transform: translateY(0); }
+/* 名字框贴在最右侧：提示改成右对齐、向左展开，否则会溢出到屏幕外 */
+.name-box[data-tip]:hover::after { left: auto; right: 0; }
+/* 候选列表弹出来的时候别再叠一层悬浮说明：两个都在下方，会直接把列表盖住 */
+.name-box:has(.name-menu:not([hidden]))[data-tip]:hover::after { display: none; }
+
+/* 候选浮层：自己画。原生 datalist 由系统绘制（浅底 + 大三角），跟页面风格完全不搭，
+   而且只要挂了 list 属性，输入框一聚焦就会被画成系统下拉框的样子。 */
+.name-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 116px;
+  padding: 4px;
+  /* 人多了就列表内部滚，不把整页撑开；滚到头也别带着页面一起滚 */
+  max-height: min(228px, 42vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* 系统滚动条太丑；但这条列表光看被切断也未必想到能滚，所以留一条极细的（悬停才亮） */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+  border-radius: 12px;
+  background: #16203c;
+  border: 1px solid var(--line);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.5);
+}
+/* 细滚动条：系统默认那条（还带上下箭头）太丑。Chromium 系用伪元素自己画一条，
+   Firefox 没有伪元素，就用标准属性退而求其次（两边都不会出现箭头按钮）。 */
+@supports selector(::-webkit-scrollbar) {
+  .name-menu {
+    scrollbar-width: auto;      /* 让位给下面的伪元素（设了标准属性 Chromium 会忽略伪元素） */
+    scrollbar-color: auto;
+  }
+  .name-menu::-webkit-scrollbar { width: 6px; height: 6px; }
+  .name-menu::-webkit-scrollbar-button { display: none; }   /* 去掉两端的箭头 */
+  .name-menu::-webkit-scrollbar-track { background: transparent; }
+  .name-menu::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.2); border-radius: 999px; }
+  .name-menu::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.38); }
+}
+
+.name-item {
+  display: flex;
+  align-items: center;
+  border-radius: 8px;
+}
+.name-item:hover { background: rgba(123, 108, 255, 0.24); }
+.name-pick {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 5px 2px 5px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-2);
+  font-family: inherit;
+  font-size: 12.5px;
+  letter-spacing: 0.3px;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.name-item:hover .name-pick { color: var(--text-strong); }
+/* 删除：平时不出现，指到这一行才露出一点 —— 免得列表看着乱 */
+.name-del {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  margin-right: 5px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+/* 与名字框里那枚「×」用同一个描边图标、同样的尺寸与线宽，两处观感一致 */
+.name-del > svg {
+  width: 9px;
+  height: 9px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+}
+.name-item:hover .name-del { opacity: 0.75; }
+.name-del:hover { opacity: 1; color: #fff; background: rgba(255, 107, 129, 0.5); }
 /* 注：这里曾给辅助模式单配一套绿色按钮（绿边框 + 绿底）以示区分，
    但两种模式的这个按钮样式应当完全一致（当前玩法由页面内容表达），故不再覆盖。 */
 

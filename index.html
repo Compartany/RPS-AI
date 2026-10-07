@@ -60,9 +60,21 @@
         <input type="file" id="importFile" accept=".rps,text/plain" hidden />
       </div>
 
-      <button class="mode-toggle" id="modeBtn" type="button">
-        <b class="mode-v" id="modeName">对战模式</b>
-      </button>
+      <div class="mode-wrap">
+        <div class="name-box" id="nameBox">
+          <input type="text" id="nameInput" maxlength="8" placeholder="我的名字"
+                 autocomplete="off" spellcheck="false" aria-label="名字" />
+          <button class="name-save" id="nameSaveBtn" type="button" aria-label="保存名字">保存</button>
+          <button class="name-clear" id="nameClearBtn" type="button" aria-label="清空名字">
+            <svg viewBox="0 0 10 10" aria-hidden="true"><path d="M2 2 L8 8 M8 2 L2 8" /></svg>
+          </button>
+          <div class="name-menu" id="nameMenu" hidden></div>
+          <div class="name-toast" id="nameToast" role="status"></div>
+        </div>
+        <button class="mode-toggle" id="modeBtn" type="button">
+          <b class="mode-v" id="modeName">对战模式</b>
+        </button>
+      </div>
 
       <div class="combatant">
         <div class="who">

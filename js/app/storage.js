@@ -2,12 +2,21 @@
  * RPS-AI · 存档序列化
  *
  * 存档用 JSON（自描述、字段可增删）：
- *   { format, version, order, mode, profiles: { duel: 段, assist: 段 } }
+ *   { format, version, order, mode, user?, opponent?, profiles: { 档案键: 段, … } }
+ *   档案键按「被预测者」分：`p:名字`（这个人在两种玩法下的记录合在一份），
+ *   没起名字时退回模式默认档：'duel'（对战）/ 'assist'（辅助）。
+ *   user / opponent 只是当前界面的状态（名字框里填了什么），没填就不写。
  *   「段」= { params{…}, stats{…}, hit, hitTries, ideal{…}, history, hitLog }
- *   history 是紧凑串（每局 2 字符：我方 + 对手），hitLog 每局 1 字符。
+ *   history 是紧凑串（每局 2 字符：被预测者 + 对方），hitLog 每局 1 字符。
  *
  * 跨版本兼容就靠一条：读的时候只认自己认识的字段 ——
  * 缺的用默认值补上、多的直接忽略，所以新版存档丢给旧版、旧版丢给新版都能读。
+ * 键也同理：只认识上面几种（V4 的 'assist#名字' 等同于 `p:名字`），其余的丢掉。
+ *
+ * 自动存档（autosave）用的是同一套格式，只在 localStorage 里加了两个自己的字段：
+ *   active：上次的当前档案键（无名档时写 null）—— 没有它，恢复时只能按「模式 + 名字」猜，
+ *          猜不到就会把别人的档案装成当前档；
+ *   profiles 里只留有名字的档案（'duel' / 'assist' 这种无名档不进自动存档）。
  */
 (function (global) {
   'use strict';
@@ -16,11 +25,14 @@
   const { state } = App;
   const { MOVES } = global.RPS;
 
-  /** 把当前状态（两套玩法各自的快照）序列化成存档文本 */
-  function buildSave() {
-    const seg = (mode) => {
-      const p = App.profileOf(mode);
-      if (!p) return null;                     // 该玩法没启用过：不留段
+  /**
+   * 把当前状态（每份档案各自的快照）序列化成存档文本
+   * @param opt.namedOnly 只收「有名字」的档案（自动存档用：没名字的那份按口径本来就不该留下来）
+   */
+  function buildSave(opt) {
+    const seg = (key) => {
+      const p = App.profileOf(key);
+      if (!p) return null;                     // 该档案没启用过：不留段
       const f = p.fields;
       const pr = p.params;
       return {
@@ -40,12 +52,23 @@
         hitLog: (f.hitLog || []).join(''),
       };
     };
+    // 键就是档案键（见文件头）；当前那份排在最前，其余按寄存位里的顺序
+    const profiles = {};
+    for (const key of [state.key, ...Object.keys(App.parked)]) {
+      if (profiles[key] !== undefined) continue;
+      if (opt && opt.namedOnly && !/^p:/.test(key)) continue;
+      const s = seg(key);
+      if (s) profiles[key] = s;
+    }
     return JSON.stringify({
       format: App.SAVE_FORMAT,
       version: App.SAVE_VERSION,
       order: App.ORDER,
       mode: state.mode,
-      profiles: { duel: seg('duel'), assist: seg('assist') },
+      // 没改名字就不写这两个字段 —— 存档里也就不含「谁是谁」的信息
+      user: state.userName || undefined,
+      opponent: state.opponent || undefined,
+      profiles,
     }, null, 2) + '\n';
   }
 
@@ -85,6 +108,21 @@
     };
   }
 
+  /** 规范化档案键：`p:名字` / 'duel' / 'assist'；V4 的 'assist#名字' 等同于 `p:名字`，认不出的丢掉 */
+  function normKey(k) {
+    if (k === 'duel' || k === 'assist') return k;
+    if (typeof k !== 'string') return null;
+    if (k.indexOf('p:') === 0) {
+      const n = App.cleanName(k.slice(2));
+      return n ? 'p:' + n : null;
+    }
+    if (k.indexOf('assist#') === 0) {          // V4 旧键：辅助模式下某人的档案
+      const n = App.cleanName(k.slice('assist#'.length));
+      return n ? 'p:' + n : 'assist';
+    }
+    return null;
+  }
+
   /** 解析存档文本：只认 JSON（字段可增删，见文件头注释） */
   function parseSave(text) {
     const s = String(text).replace(/^\uFEFF/, '').trim();   // 容忍 BOM 与前后空白
@@ -95,12 +133,59 @@
       throw new Error('存档内容不是合法的 JSON');
     }
     if (!d || typeof d !== 'object') throw new Error('存档内容不是有效的 JSON 对象');
-    const profs = d.profiles || {};
-    return {
-      order: Number(d.order) || 3,
-      mode: d.mode === 'assist' ? 'assist' : 'duel',
-      profiles: { duel: profileFromJSON(profs.duel), assist: profileFromJSON(profs.assist) },
-    };
+    const raw = d.profiles || {};
+    const profiles = {};
+    for (const k of Object.keys(raw)) {
+      const key = normKey(k);
+      if (!key || !raw[k]) continue;
+      profiles[key] = profileFromJSON(raw[k]);
+    }
+    if (!Object.keys(profiles).length) throw new Error('存档里没有任何数据段');
+    const mode = d.mode === 'assist' ? 'assist' : 'duel';
+    const user = App.cleanName(d.user);
+    const opponent = App.cleanName(d.opponent);
+    // 当前该打开哪一份：按存档里的「模式 + 名字」算；算出来没有（手改过 / 跨版本）就退回同模式的默认档
+    let key = App.profileKey(mode, user, opponent);
+    if (!profiles[key]) {
+      const fallback = mode === 'assist' ? 'assist' : 'duel';
+      key = profiles[fallback] ? fallback : Object.keys(profiles)[0];
+    }
+    return { key, profiles, mode, user, opponent };
+  }
+
+  /* ============================== 自动存档 ============================== */
+
+  const AUTOSAVE_KEY = 'rps-ai-autosave';
+
+  /**
+   * 自动存档：把进展写进 localStorage，刷新 / 关掉页面再回来还能接着玩。
+   * 只收有名字的档案（无名档按本项目口径本来就不该留下来），另外记下当前档是谁 ——
+   * 恢复时不能靠「模式 + 名字」去猜：上次若是无名档，猜出来会把别人的档案装成当前档。
+   * 全程吞异常：file:// 或隐私设置禁掉 localStorage 时，静默退化成「和以前一样只在内存里」。
+   */
+  function autosave() {
+    try {
+      const d = JSON.parse(buildSave({ namedOnly: true }));
+      if (!Object.keys(d.profiles).length) {          // 全删光了：存档也一并清掉
+        localStorage.removeItem(AUTOSAVE_KEY);
+        return;
+      }
+      d.active = /^p:/.test(state.key) ? state.key : null;
+      localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(d));
+    } catch (e) { /* 存不了就算了，不该影响正事 */ }
+  }
+
+  /** 读回自动存档：没有 / 坏了 / 被禁用都返回 null。返回 { data, active }（active 为 undefined 表示这份存档没记过当前档） */
+  function loadAutosave() {
+    try {
+      const text = localStorage.getItem(AUTOSAVE_KEY);
+      if (!text) return null;
+      const raw = JSON.parse(text);
+      // active 可能是字符串（有名字的档）或 null（上次那份没名字）；只有「压根没这个字段」才当没记过 ——
+      // 不这么分的话，null 会被 typeof 判成 object 而丢掉，恢复时又退回「按名字算」，把别人的档装成当前档。
+      const active = 'active' in raw ? (typeof raw.active === 'string' ? raw.active : null) : undefined;
+      return { data: parseSave(text), active };
+    } catch (e) { return null; }
   }
 
   Object.assign(App, { buildSave, parseSave });

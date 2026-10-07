@@ -159,6 +159,7 @@
     App.predictor.learn(view, predicted);
     for (const m of App.decayModels) m.learn(view, predicted);
     state.history.push({ human: myMove, cpu: oppMove });
+    App.bumpActivity();      // 这份数据刚玩过（名字框候选按「最近玩过」排序）
 
     autoTuneStep();
 
@@ -173,7 +174,7 @@
   }
 
   function resetAll() {
-    App.parked[state.mode] = null;      // 只重置当前玩法这一套，另一玩法的数据原样保留
+    delete App.parked[state.key];       // 只重置当前这一份（当前玩法 / 当前对手），其余的原地保留
     Object.assign(state, App.emptyProfile());
     state.revealedOpp = null;
     state.picks = { opp: null, me: null };
@@ -186,12 +187,23 @@
 
   /* ============================== 存档 ============================== */
 
+  /** 文件名安全化：去掉 Windows 不允许的字符与首尾的点/空白，并限制长度 */
+  function safeFileName(s) {
+    return String(s || '')
+      .replace(/[\\/:*?"<>|]/g, '_')
+      .replace(/^[.\s]+|[.\s]+$/g, '')
+      .slice(0, 24);
+  }
+
   function exportSave() {
+    // 文件名带上「被预测者」的名字（对战模式 = 我，辅助模式 = 对手）：同名就同名，一眼能分清是谁的数据。
+    // 不加 rps- 前缀、也不带模式：扩展名已经说明这是什么，同一份数据两种玩法又通用。
+    const who = safeFileName(isAssist() ? state.opponent : state.userName);
     const blob = new Blob([App.buildSave()], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `rps-${state.mode}-${new Date().toISOString().slice(0, 10)}.rps`;
+    a.download = `${who ? who + '-' : ''}${new Date().toISOString().slice(0, 10)}.rps`;
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -211,14 +223,32 @@
     reader.readAsText(file);
   }
 
-  function applySave(d) {
+  /**
+   * 把一份存档装回工作区。
+   * @param activeKey 明确指定「当前档」是谁（自动存档会记下）；手动导入不传，就按存档里的「模式 + 名字」算
+   */
+  function applySave(d, activeKey) {
     if (!d || !d.profiles) throw new Error('格式不正确（缺少数据段）');
 
-    // 两套各自就位：目标模式那套搬进工作区，另一套留在寄存位备用
-    App.parked.duel = d.profiles.duel || null;
-    App.parked.assist = d.profiles.assist || null;
-    state.mode = d.mode === 'assist' ? 'assist' : 'duel';
-    App.takeProfile(state.mode);
+    // 所有档案各自就位：目标那份搬进工作区，其余的留在寄存位备用
+    for (const k of Object.keys(App.parked)) delete App.parked[k];
+    Object.assign(App.parked, d.profiles);
+    state.mode = d.mode;
+    // activeKey 传 null = 「当前档刻意留空」（启动时选「空白开始」），名字框也一并留空；
+    // 否则按名字算出来的键仍会指回某个人，把那个人的档案当成当前档装在身上 ——
+    // 紧接着的自动存档就会把此人的记录覆盖成空段。
+    const blank = activeKey === null;
+    state.userName = blank ? '' : d.user;
+    state.opponent = blank ? '' : d.opponent;
+    // 自动存档会把上次的当前档原样记下（无名档记成 null）。上次没起名字时不能退回「按名字算」——
+    // 那样会把某个有名字的档案当成当前档装在身上，之后打的局全记到别人名下。
+    const key = activeKey !== undefined ? activeKey : (d.key || App.currentKey());
+    if (key && App.parked[key]) {
+      App.takeProfile(key, true);      // 手动导入：没名字的那份也照样读回来
+    } else {
+      state.key = key || App.currentKey();
+      App.setProfileIntoState(null);
+    }
     state.revealed = false;
     state.revealedMove = null;
     state.revealedOpp = null;
@@ -252,11 +282,116 @@
     });
   }
 
-  /** 把当前模式反映到界面：按钮文案、录入区显隐、全部称谓 */
-  function syncModeUI() {
+  /**
+   * 名字候选浮层。没用原生 datalist：它由系统绘制（浅色底 + 大三角），跟页面的玻璃风格完全不搭 ——
+   * 而且只要挂了 list 属性，输入框一聚焦就会被画成系统下拉框的样子。这里自己画一份。
+   * 人多了也不怕：列表自己限高滚动，而且会按框里已经打进去的字实时筛。
+   */
+  function showNameMenu() {
+    const q = els.nameInput.value.trim().toLowerCase();
+    const names = App.knownNames().filter((n) => !q || n.toLowerCase().indexOf(q) >= 0);
+    els.nameMenu.innerHTML = '';
+    if (!names.length) {
+      els.nameMenu.hidden = true;
+      return;
+    }
+    for (const n of names) {
+      const row = document.createElement('div');
+      row.className = 'name-item';
+
+      const pick = document.createElement('button');
+      pick.type = 'button';
+      pick.className = 'name-pick';
+      pick.textContent = n;
+      // 用 mousedown 并阻止默认行为：抢在输入框失焦之前把名字填进去
+      pick.addEventListener('mousedown', (ev) => {
+        ev.preventDefault();
+        els.nameInput.value = n;
+        commitName();                  // 点一项 = 就用这个名字（跟点「保存」走同一条路）
+        els.nameInput.blur();
+      });
+
+      // 单独清掉这个人的数据（不用先切过去再点「重置数据」）
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'name-del';
+      del.textContent = '\u00d7';
+      del.setAttribute('aria-label', `删除「${n}」及其记录`);
+      // 叉用描边图标：文本的「×」在行框里天生偏上（乘号位于 x 高度区），
+      // 在这么小的方块里一眼就能看出歪；图标与按钮同为 1:1 的盒子，grid 居中即真正居中。
+      del.innerHTML = '<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M2 2 L8 8 M8 2 L2 8" /></svg>';
+      del.addEventListener('mousedown', (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        deleteProfile(n);
+      });
+
+      row.appendChild(pick);
+      row.appendChild(del);
+      els.nameMenu.appendChild(row);
+    }
+    els.nameMenu.hidden = false;
+  }
+
+  /**
+   * 框内那颗按钮该露哪一颗（两者共用同一个槽位，互斥）：
+   *   · 改过、且框里不为空 → 「保存」
+   *   · 没改过、且框里不为空 → 「×」（清空，指针移到框上才露）
+   * 空框两颗都不给：要清空有「×」，手删到空再按保存没有意义。
+   */
+  function syncNameSave() {
+    const v = els.nameInput.value;
+    const dirty = v !== App.predictedName();
+    const hasText = !!v.trim();
+    els.nameBox.classList.toggle('dirty', dirty && hasText);
+    els.nameBox.classList.toggle('can-clear', !dirty && hasText);
+  }
+
+  let nameToastTimer = 0;
+
+  /** 名字没保存上的小通知：贴在名字框下面浮 1.5s 自己退场（重复触发就重新计时） */
+  function showNameToast(text) {
+    els.nameToast.textContent = text;
+    els.nameToast.classList.add('show');
+    clearTimeout(nameToastTimer);
+    nameToastTimer = setTimeout(() => els.nameToast.classList.remove('show'), 1500);
+  }
+
+  /** 提前收起：聚焦时那块地方要让给候选列表，两个叠在一起会看不清 */
+  function hideNameToast() {
+    clearTimeout(nameToastTimer);
+    els.nameToast.classList.remove('show');
+  }
+
+  /**
+   * 收下输入框里的名字：对战模式给我方命名，辅助模式给对手命名，顺带收起候选。
+   * 名字只有走到这里才生效（按保存 / 回车 / 点候选）—— 顺手点开别的地方、离开输入框都不算。
+   */
+  function commitName() {
+    const v = els.nameInput.value;
+    if (isAssist()) setOpponent(v);
+    else setUserName(v);
+    els.nameMenu.hidden = true;
+    syncNameSave();
+    App.autosave();          // 改名 = 换一份档案，落盘的内容也要跟着换
+  }
+
+  /**
+   * 把当前模式反映到界面：按钮文案、录入区显隐、全部称谓。
+   * @param keepPanel 保持面板当前的开合状态（只是改个名字时用；换模式要按新模式重设）
+   */
+  function syncModeUI(keepPanel) {
     els.arena.dataset.mode = state.mode;
     els.modeName.textContent = App.MODE_LABEL[state.mode];
     els.cpuPick.hidden = !isAssist();
+    // 名字框一框两用：对战模式的对手恒为 AI，能起名字的就是「我」；辅助模式则是对手。
+    // 框里不写「我 / 对手」标签（两个词并排会读成一句话），身份改由占位文字说明。
+    els.nameInput.value = isAssist() ? state.opponent : state.userName;
+    els.nameInput.placeholder = isAssist() ? '对手名字' : '我的名字';
+    els.nameBox.setAttribute('data-tip',
+      '填写名字后该数据才会保留（换名即换一份）；留空则在切换模式或刷新页面时清除，手动导出存档除外。');
+    els.nameMenu.hidden = true;            // 换模式/换名字时把候选收起来
+    syncNameSave();                        // 框里的字刚被回写成生效的名字，保存按钮该收起来
     // 「我方 / 对手」的称谓不走互换（互换针对的是「被预测者 / cpu 侧」），直接按模式写
     els.oppAvatar.textContent = isAssist() ? '对手' : 'AI';
     els.cpuLabel.textContent = `${App.oppName()}胜率`;
@@ -264,8 +399,10 @@
     // 小格（上一轮对面的出招）的提示由 renderLast() 按当轮数据写，这里不再写死：
     // 两种模式下看的是不同的人（对战看电脑、辅助看真人对手），但措辞跟着 oppName() 走
     els.meAvatar.textContent = App.meName();
-    // 辅助模式下两侧都去掉「的」，与「对手胜率」保持句式一致
-    els.humanLabel.textContent = isAssist() ? '我方胜率' : '你的胜率';
+    // 起过名字就用名字；对战模式没起名叫「人类」（与左侧评估卡片一致），辅助模式恒为「我方」
+    els.humanLabel.textContent = state.userName && !isAssist()
+      ? `${state.userName}胜率`
+      : (isAssist() ? '我方胜率' : '人类胜率');
     els.modeBtn.setAttribute('data-tip', isAssist()
       ? 'AI 替你出招（点击切换到对战模式）'
       : '你 vs AI（点击切换到辅助模式）');
@@ -273,18 +410,14 @@
     togglePanel(isAssist());   // 面板默认状态：辅助模式展开（要边出边看预测依据），对战模式收起
   }
 
-  /** 切换玩法：两种模式的数据与参数各自独立 —— 切走先寄存、切回原样取回 */
-  function setMode(mode) {
-    if (mode === state.mode) return;
-    App.parkProfile();             // 当前这套先寄好
-    state.mode = mode;
-    App.takeProfile(mode);         // 目标那套取回来（首次进入 = 干净的一份 + 默认参数）
+  /** 换档之后重开一局：清掉局内状态，按新档案重建模型与界面 */
+  function restartRound(keepPanel) {
     state.revealed = false;
     state.revealedMove = null;
     state.revealedOpp = null;
     state.picks = { opp: null, me: null };
     state.pending = null;
-    syncModeUI();
+    syncModeUI(keepPanel);
     App.predictor = newPredictor(App.ORDER);
     App.predictor.replay(predView());
     rebuildDecayModels();
