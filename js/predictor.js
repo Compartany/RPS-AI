@@ -62,15 +62,23 @@
     /**
      * 当前局面下的匹配键；历史长度不足返回 null。
      * end 表示「只看前 end 局」（缺省为全部），供回放时免去切数组的开销。
+     *
+     * 局上带 seg（连续段编号）：一条序列只能由同一段里的局拼成 —— 很久没玩时
+     * 会另起一段（见 main.js 的断链），当前局的序列不跨过断点去借旧局的招。
+     * 段内局数不足 order（胜负关系序列还要多借一局）时，本局就没有该序列。
+     * 局上没有 seg（如基准测试直接构造的历史）时一律视为同一段。
      */
     keyFor(history, end) {
       if (this.source === 'freq' || this.source === 'random') return 'ALL';
       const len = end == null ? history.length : end;
+      if (len <= 0) return null;
+      const seg = history[len - 1].seg;     // 当前段
 
       if (this.mode === 'result') {
         // 胜负关系序列
         if (this.source === 'self') {
           if (len < this.order + 1) return null;
+          if (history[len - this.order - 1].seg !== seg) return null;
           const seq = [];
           for (let i = len - this.order; i < len; i++) {
             seq.push(relation(history[i].human, history[i - 1].human));
@@ -78,6 +86,7 @@
           return seq.join('>');
         }
         if (len < this.order) return null;
+        if (history[len - this.order].seg !== seg) return null;
         const seq = [];
         for (let i = len - this.order; i < len; i++) {
           seq.push(relation(history[i].human, history[i].cpu));
@@ -87,6 +96,7 @@
 
       // 出招序列
       if (len < this.order) return null;
+      if (history[len - this.order].seg !== seg) return null;
       const seq = [];
       for (let i = len - this.order; i < len; i++) {
         seq.push(this.source === 'self' ? history[i].human : history[i].cpu);

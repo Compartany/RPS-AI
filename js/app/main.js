@@ -64,7 +64,38 @@
 
   /* ============================== 流程 ============================== */
 
+  /**
+   * 本局是不是「很久没玩之后」的一局；是的话另起一段（state.seg++），
+   * 断点另一侧的局不再与本局拼成同一条序列。
+   * 窗口类观测（最近 N 局的命中与各档位战绩、押注与探索判定的过程值）一并清零 ——
+   * 断链后的前 12 局里，押注判定与自动调参的择优因样本不足而静默，与全新开局的头几局同一表现；
+   * 而累计战绩、各标准的依据值与已调好的参数一概保留。
+   */
+  function breakIfStale() {
+    const now = Date.now();
+    if (!state.lastAt || now - state.lastAt <= App.ROUND_GAP_MS) return false;
+    state.seg++;
+    state.segStart = state.history.length;
+    state.hitLog = [];
+    state.bestLog = [];
+    state.shadow = [];
+    state.shadowTargets = null;
+    state.rateTable = null;
+    state.decayShadow = [];
+    state.decayTargets = null;
+    state.decayRateTable = null;
+    state.exploreStat = null;
+    state.exploreCap = 0;
+    state.predictStat = null;
+    state.predictTrust = 0;
+    state.streak = { side: null, count: 0 };
+    state.lastResult = null;
+    state.lastAt = now;      // 新段从此刻起算
+    return true;
+  }
+
   function startRound() {
+    breakIfStale();          // 很久没玩（含刚载入存档）之后回来，本局与旧局不再算同一段
     syncPredictTrust();
     const view = predView();
     state.pending = App.predictor.decide(view);
@@ -102,6 +133,10 @@
    * @param oppMove 对手的实际出招（对战模式 = AI 已定的招；辅助模式 = 录入的真人出招）
    */
   function settle(myMove, oppMove) {
+    // 开局后挂了很久（超过阈值）才出招：本局就是断链后的第一局，窗口与统计都从它开始数。
+    // （本局的预测是开局时算的，那时确实还算连续；段首局不再判定，免得重复另起一段）
+    if (state.history.length !== state.segStart) breakIfStale();
+
     // 被预测者的实际出招：对战模式预测你，辅助模式预测电脑（真人）
     const predicted = isAssist() ? oppMove : myMove;
     const result = judge(myMove, oppMove);
@@ -158,7 +193,8 @@
     const view = predView();
     App.predictor.learn(view, predicted);
     for (const m of App.decayModels) m.learn(view, predicted);
-    state.history.push({ human: myMove, cpu: oppMove });
+    state.history.push({ human: myMove, cpu: oppMove, seg: state.seg });
+    state.lastAt = Date.now();   // 本局的时刻：下一局据此判定「隔了多久」
     App.bumpActivity();      // 这份数据刚玩过（名字框候选按「最近玩过」排序）
 
     autoTuneStep();

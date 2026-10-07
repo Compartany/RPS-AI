@@ -6,8 +6,11 @@
  *   档案键按「被预测者」分：`p:名字`（这个人在两种玩法下的记录合在一份），
  *   没起名字时退回模式默认档：'duel'（对战）/ 'assist'（辅助）。
  *   user / opponent 只是当前界面的状态（名字框里填了什么），没填就不写。
- *   「段」= { params{…}, stats{…}, hit, hitTries, ideal{…}, history, hitLog }
+ *   「段」= { params{…}, stats{…}, hit, hitTries, ideal{…}, history, breaks, lastAt, hitLog }
  *   history 是紧凑串（每局 2 字符：被预测者 + 对方），hitLog 每局 1 字符。
+ *   breaks 是连续段的断点（局号）：从该局起另起一段，两端的局不拼成同一条序列 ——
+ *   很久没玩之后再回来，当前局的序列不跨过断点去借旧局的招；lastAt 是上一局的时间戳，
+ *   供下次启动判定「隔了多久」。两者缺失（旧存档 / 手改过）都当「整条历史是一段」。
  *
  * 跨版本兼容就靠一条：读的时候只认自己认识的字段 ——
  * 缺的用默认值补上、多的直接忽略，所以新版存档丢给旧版、旧版丢给新版都能读。
@@ -49,6 +52,8 @@
         hitTries: f.hitTries | 0,
         ideal: { win: f.ideal.win | 0, lose: f.ideal.lose | 0 },
         history: f.history.map((r) => r.human + r.cpu).join(''),
+        breaks: breaksOf(f.history),
+        lastAt: f.lastAt || undefined,
         hitLog: (f.hitLog || []).join(''),
       };
     };
@@ -72,6 +77,15 @@
     }, null, 2) + '\n';
   }
 
+  /** 局上的段标记 → 断点局号（第 i 局与第 i-1 局不同段）；没有断点返回 undefined，存档里就不写这个字段 */
+  function breaksOf(history) {
+    const out = [];
+    for (let i = 1; i < history.length; i++) {
+      if (history[i].seg !== history[i - 1].seg) out.push(i);
+    }
+    return out.length ? out : undefined;
+  }
+
   /** 读一个 JSON 段；字段缺失、类型不对都退回默认值（这就是跨版本兼容的关键） */
   function profileFromJSON(o) {
     if (!o || typeof o !== 'object') return null;
@@ -82,6 +96,19 @@
     const history = [];
     for (let i = 0; i + 1 < hist.length; i += 2) {
       if (ok(hist[i]) && ok(hist[i + 1])) history.push({ human: hist[i], cpu: hist[i + 1] });
+    }
+    // 按断点给每局标上「连续段」编号（缺字段 = 整条历史一段，与旧行为一致）
+    const breaks = new Set();
+    if (Array.isArray(o.breaks)) {
+      for (const v of o.breaks) {
+        if (typeof v === 'number' && v > 0 && v < history.length) breaks.add(v | 0);
+      }
+    }
+    let seg = 0;
+    let segStart = 0;
+    for (let i = 0; i < history.length; i++) {
+      if (i > 0 && breaks.has(i)) { seg++; segStart = i; }
+      history[i].seg = seg;
     }
     const p = o.params || {};
     const st = o.stats || {};
@@ -97,6 +124,9 @@
       },
       fields: {
         history,
+        seg,
+        segStart,
+        lastAt: num(o.lastAt, 0),
         stats: { cpu: num(st.cpu, 0) | 0, human: num(st.human, 0) | 0, draw: num(st.draw, 0) | 0 },
         hit: num(o.hit, 0) | 0,
         hitTries: num(o.hitTries, 0) | 0,

@@ -13,6 +13,10 @@
   // 记忆阶数：固定为 3（不再支持自定义；阶数越高越关注长序列规律，但样本需求也越大）
   const ORDER = 3;
 
+  // 连续对局的时限：相邻两局间隔超过它，就视为「很久之前的对局」—— 断点两边的局不算同一段，
+  // 当前局的序列不跨过去拼。阈值比「正常连续对局」宽松得多：一局只需几秒，中断片刻不算断。
+  const ROUND_GAP_MS = 3 * 60 * 1000;
+
   const MODE_LABEL = { duel: '对战模式', assist: '辅助模式' };
 
   // 自动调参：候选的样本收缩档位（0 = 完全按应验率加权）、评估窗口与最少样本
@@ -26,11 +30,12 @@
   const EXPLORE_TIERS = [0, 0.1, 0.2, 0.35, 0.5, 0.7, 1];
 
   const SAVE_FORMAT = 'rps-ai-save';
-  const SAVE_VERSION = 5;                    // 5：档案改按「被预测者的名字」分（`p:名字`），不再按模式分
+  const SAVE_VERSION = 6;                    // 6：段里加连续段断点（breaks）与上一局时间戳（lastAt）
+                                             // 5：档案改按「被预测者的名字」分（`p:名字`），不再按模式分
 
   // 每种玩法各自寄存的累积字段 —— 局内的（pending / revealed / picks …）每局都会重来，不必存
   const PROFILE_FIELDS = [
-    'history', 'stats', 'hit', 'hitTries', 'hitLog', 'ideal', 'bestLog',
+    'history', 'seg', 'segStart', 'lastAt', 'stats', 'hit', 'hitTries', 'hitLog', 'ideal', 'bestLog',
     'shadow', 'shadowTargets', 'rateTable',
     'decayShadow', 'decayTargets', 'decayRateTable',
     'exploreStat', 'exploreCap', 'predictStat', 'predictTrust',
@@ -117,7 +122,10 @@
   /* ============================== 运行状态 ============================== */
 
   const state = {
-    history: [],                       // [{ human, cpu }]
+    history: [],                       // [{ human, cpu, seg }]；seg = 该局所在的「连续段」编号
+    seg: 0,                            // 当前连续段编号（很久没玩会另起一段）
+    segStart: 0,                       // 当前段的第一局在 history 中的下标
+    lastAt: 0,                         // 上一局的时间戳（相邻两局间隔超过 ROUND_GAP_MS 即断链）
     stats: { cpu: 0, human: 0, draw: 0 },
     pending: null,                     // 本局电脑已选好的招 + 依据
     revealed: false,
@@ -176,7 +184,7 @@
   /** 预测器视图：把「被预测者」放进 human 字段（预测器只区分 human / cpu 两列） */
   function predView() {
     return isAssist()
-      ? state.history.map((r) => ({ human: r.cpu, cpu: r.human }))
+      ? state.history.map((r) => Object.assign({}, r, { human: r.cpu, cpu: r.human }))
       : state.history;
   }
 
@@ -244,7 +252,8 @@
    * 两种口径互为镜像：翻两次正好回到原样。
    */
   function flipFields(f) {
-    f.history = f.history.map((r) => ({ human: r.cpu, cpu: r.human }));
+    // 逐项复制：局上除两列招式外还挂着 seg（连续段编号），不能只挑那两列
+    f.history = f.history.map((r) => Object.assign({}, r, { human: r.cpu, cpu: r.human }));
     f.stats = { human: f.stats.cpu, cpu: f.stats.human, draw: f.stats.draw };
     const st = f.streak || {};
     f.streak = { side: st.side === 'human' ? 'cpu' : st.side === 'cpu' ? 'human' : null, count: st.count || 0 };
@@ -306,6 +315,9 @@
   function emptyProfile() {
     return {
       history: [],
+      seg: 0,
+      segStart: 0,
+      lastAt: 0,
       stats: { cpu: 0, human: 0, draw: 0 },
       hit: 0,
       hitTries: 0,
@@ -404,7 +416,7 @@
 
   const app = {
     // 常量
-    ORDER, MODE_LABEL, Z_CANDIDATES, Z_WINDOW, Z_MIN_SAMPLES, DECAY_TIERS, EXPLORE_TIERS,
+    ORDER, ROUND_GAP_MS, MODE_LABEL, Z_CANDIDATES, Z_WINDOW, Z_MIN_SAMPLES, DECAY_TIERS, EXPLORE_TIERS,
     SAVE_FORMAT, SAVE_VERSION, PROFILE_FIELDS,
     // DOM 与状态
     $, els, state, parked,
