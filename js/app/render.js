@@ -631,7 +631,6 @@
 
   function renderHistory() {
     const recs = state.history;
-    els.records.title = `最近的对局，从左到右由旧到新；绿 = ${meName()}赢 / 红 = ${oppName()}赢 / 灰 = 平局，悬停可看详情。`;
     // 色块 10px + 间隙 3px；按可用宽度决定显示多少个，避免溢出（容器不再裁剪，溢出会顶出卡片）
     const per = 13;
     const avail = els.records.clientWidth || 260;

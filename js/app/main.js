@@ -406,7 +406,7 @@
     els.nameMenu.hidden = true;            // 换模式/换名字时把候选收起来
     syncNameSave();                        // 框里的字刚被回写成生效的名字，保存按钮该收起来
     // 「我方 / 对手」的称谓不走互换（互换针对的是「被预测者 / cpu 侧」），直接按模式写
-    els.oppAvatar.textContent = isAssist() ? '对手' : 'AI';
+    els.oppAvatar.textContent = isAssist() ? App.oppName() : 'AI';
     els.cpuLabel.textContent = `${App.oppName()}胜率`;
     els.oppPickLabel.textContent = `${App.oppName()}出了`;
     // 小格（上一轮对面的出招）的提示由 renderLast() 按当轮数据写，这里不再写死：
@@ -420,7 +420,8 @@
       ? 'AI 替你出招（点击切换到对战模式）'
       : '你 vs AI（点击切换到辅助模式）');
     applyTerms();
-    togglePanel(isAssist());   // 面板默认状态：辅助模式展开（要边出边看预测依据），对战模式收起
+    // 面板默认状态：辅助模式展开（要边出边看预测依据），对战模式收起
+    if (!keepPanel) togglePanel(isAssist());
   }
 
   /** 换档之后重开一局：清掉局内状态，按新档案重建模型与界面 */
@@ -559,7 +560,7 @@
     const open = show === undefined ? els.panel.hidden : show;
     els.panel.hidden = !open;
     els.layout.classList.toggle('with-panel', open);
-    els.panelBtn.textContent = open ? '隐藏分析面板' : '显示分析面板';
+    els.panelBtn.textContent = open ? '收起分析' : '展开分析';
     if (open) renderPanel();
   }
 

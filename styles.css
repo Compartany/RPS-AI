@@ -209,7 +209,7 @@ body {
      （曾用 min-height:0，结果内容直接溢出到卡片外、盖住下面的卡片） */
   min-height: min-content;
   /* 富余空间集中到两端（居中排列），不要平摊到每个元素之间 ——
-     否则“选择你的出招”这类单行提示上下会各被撑出一大块空当 */
+     否则「选择你的出招」这类单行提示上下会各被撑出一大块空当 */
   justify-content: center;
   padding: clamp(10px, 1.3vh, 13px) 18px;
   display: flex;
@@ -224,9 +224,9 @@ body {
   z-index: 2;
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  width: 118px;
-  padding: 7px;
+  gap: 2px;
+  width: 96px;
+  padding: 6px;
   /* 与外层卡片（--radius）同心：内缩 9px 则半径相应减小 */
   border-radius: calc(var(--radius) - 9px);
   background: rgba(255, 255, 255, 0.04);
@@ -237,14 +237,14 @@ body {
 .arena-tools:hover { opacity: 1; }
 .arena-tools .btn {
   width: 100%;
-  padding: 6px 6px;
+  padding: 5px 4px;
   border-radius: 9px;
   border-color: transparent;
   background: transparent;
   color: var(--muted);
   font-size: 11.5px;
   font-weight: 500;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.3px;
 }
 .arena-tools .btn:hover {
   transform: none;
@@ -278,10 +278,18 @@ body {
   place-items: center;
   /* 与右侧 .tag 共用同一套内边距与字号 → 两者自然等高（不要再单独给 height） */
   min-width: clamp(32px, 3.6vh, 40px);
-  padding: 3px 10px;
+  /* 上下各挪半像素：行盒 16px 里 ascent 13 / descent 3，而「AI」这类大写字母
+     最高只到基线上方 9px、下方又没有降部，墨迹中心比行盒中心低 0.5px（看着偏下）。
+     左右同理不对称（收左 1px）：字母的墨迹并非在行盒里居中 ——
+     「A」左侧几乎贴边，而「I」右侧还多出一截留白，整串看着偏右。
+     两侧 padding 合计仍是 6px / 20px，与 .tag 等高。 */
+  padding: 2.5px 11px 3.5px 9px;
   border-radius: 999px;
   font-size: 12px;
   font-weight: 800;
+  /* 字距继承自 .who（1px）的话，末字之后也会多留一格，行盒比字母本身宽 1px，
+     整串就被往左推半像素 —— 标签就那么两三个字，这里不需要字距。 */
+  letter-spacing: 0;
   color: var(--text-strong);
 }
 .avatar.ai { background: linear-gradient(135deg, #ff4d6d, #b5179e); }
@@ -353,7 +361,7 @@ body {
 .choice .badge,
 .pick .badge {
   position: absolute;
-  /* 外挂偏移按“墨迹半径”留量：图案字形比字号宽高约 10%，小偏移会被墨迹压住 */
+  /* 外挂偏移按「墨迹半径」留量：图案字形比字号宽高约 10%，小偏移会被墨迹压住 */
   right: -8px;
   bottom: -6px;
   z-index: 2;
@@ -589,7 +597,7 @@ body {
 .fc-ev-chip { flex: 1 1 0; display: flex; align-items: center; justify-content: center; gap: 4px; padding: 4px 5px; border-radius: 8px; font-size: 11.5px; color: var(--muted); background: rgba(255, 255, 255, 0.05); font-variant-numeric: tabular-nums; }
 .fc-ev-chip i { font-style: normal; font-size: 13.5px; line-height: 1; }
 .fc-ev-chip.on { color: var(--accent-soft); font-weight: 600; background: rgba(123, 108, 255, 0.2); box-shadow: inset 0 0 0 1px rgba(123, 108, 255, 0.45); }
-/* 这张卡片里只有它一个内容块，不需要“卡中卡”：内层只当内容容器，四边留白交给卡片自己的 padding */
+/* 这张卡片里只有它一个内容块，不需要「卡中卡」：内层只当内容容器，四边留白交给卡片自己的 padding */
 .rand { margin: 0; padding: 0; border: 0; background: none; }
 .rand-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; font-size: clamp(12px, 1.5vh, 13px); color: var(--text-3); letter-spacing: 1px; }
 .rand-score { font-size: clamp(17px, 2.2vh, 20px); font-weight: 700; color: var(--accent-soft); font-variant-numeric: tabular-nums; }
@@ -599,11 +607,12 @@ body {
 .rand-card:has(.rand.over) {
   /* 提到参数栏之上：金光要能照过去（grid 里后绘制的栏目会盖住前一个的溢出） */
   z-index: 6;
-  border-color: rgba(255, 199, 79, calc(0.45 + 0.5 * var(--rand-power, 0)));
+  border-color: rgba(255, 199, 79, calc(0.48 + 0.3 * var(--rand-power, 0)));
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.09),
-    0 0 0 1px rgba(255, 199, 79, calc(0.22 + 0.5 * var(--rand-power, 0))),
-    /* 半径要足够大：跨过左右栏 12px 的间距，照到参数栏上去 */
-    0 0 calc(26px + 86px * var(--rand-power, 0)) rgba(255, 159, 67, calc(0.3 + 0.5 * var(--rand-power, 0)));
+    0 0 0 1px rgba(255, 199, 79, calc(0.24 + 0.3 * var(--rand-power, 0))),
+    /* 半径要足够大：跨过左右栏 12px 的间距，照到参数栏上去。
+       斜率压过（满分档收敛一大截）—— 低分档不变，越到高分越不至于爆。 */
+    0 0 calc(28px + 36px * var(--rand-power, 0)) rgba(255, 159, 67, calc(0.31 + 0.18 * var(--rand-power, 0)));
   /* 这里不能加 overflow:hidden —— 会把卡片向外的金光一起裁掉；
      流光改用 background-position 动画，伪元素自身不位移，就不需要裁了。 */
 }
@@ -612,7 +621,9 @@ body {
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  background: linear-gradient(105deg, transparent 33%, rgba(255, 219, 130, calc(0.14 + 0.34 * var(--rand-power, 0))) 50%, transparent 67%);
+  /* 扫过的亮度：三次方曲线 —— 110 分之前几乎看不见，越接近满分才越亮（满分档与上一版持平）。
+     写成连乘是因为 calc 里不能对变量取幂；pow() 太新，不用。 */
+  background: linear-gradient(105deg, transparent 33%, rgba(255, 219, 130, calc(0.03 + 0.16 * var(--rand-power, 0) * var(--rand-power, 0) * var(--rand-power, 0))) 50%, transparent 67%);
   background-size: 220% 100%;
   background-repeat: no-repeat;
   animation: randSweep calc(3s - 2.2s * var(--rand-power, 0)) ease-in-out infinite;
@@ -620,7 +631,7 @@ body {
 }
 .rand-score.over {
   color: var(--gold);
-  text-shadow: 0 0 calc(6px + 16px * var(--rand-power, 0)) rgba(255, 219, 130, calc(0.5 + 0.5 * var(--rand-power, 0)));
+  text-shadow: 0 0 calc(6px + 12px * var(--rand-power, 0)) rgba(255, 219, 130, calc(0.52 + 0.32 * var(--rand-power, 0)));
   animation: randGlow calc(2s - 1.2s * var(--rand-power, 0)) ease-in-out infinite;
 }
 .rand-score.over i { text-shadow: none; animation: none; }
@@ -630,12 +641,12 @@ body {
 .rand-card:has(.rand.max)::after { animation-duration: 0.9s; }
 .rand.max .rand-score { transform: scale(1.07); }
 @keyframes randMax {
-  0%, 100% { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.09), 0 0 0 1px rgba(255, 226, 138, 0.7), 0 0 46px rgba(255, 159, 67, 0.6), 0 0 100px rgba(255, 120, 60, 0.35); }
-  50% { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.09), 0 0 0 1px rgba(255, 240, 190, 0.95), 0 0 76px rgba(255, 180, 80, 0.85), 0 0 160px rgba(255, 120, 60, 0.6); }
+  0%, 100% { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.09), 0 0 0 1px rgba(255, 226, 138, 0.5), 0 0 22px rgba(255, 159, 67, 0.32), 0 0 48px rgba(255, 120, 60, 0.18); }
+  50% { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.09), 0 0 0 1px rgba(255, 240, 190, 0.68), 0 0 36px rgba(255, 180, 80, 0.46), 0 0 76px rgba(255, 120, 60, 0.3); }
 }
 @keyframes randGlow {
   0%, 100% { text-shadow: 0 0 6px rgba(255, 199, 79, 0.55), 0 0 14px rgba(255, 159, 67, 0.3); }
-  50% { text-shadow: 0 0 12px rgba(255, 219, 130, 0.95), 0 0 26px rgba(255, 159, 67, 0.55); }
+  50% { text-shadow: 0 0 12px rgba(255, 219, 130, 0.88), 0 0 26px rgba(255, 159, 67, 0.52); }
 }
 @keyframes randSweep {
   0% { background-position: 0% 0; }
@@ -665,7 +676,7 @@ body {
 /* 评语（独立于下方技术口径说明） */
 .rand-verdict {
   margin-top: clamp(4px, 0.7vh, 6px);
-  /* 上下留白向左右看齐（但文字块左右仍略宽一点）：两侧差一倍会显得上下“贴边” */
+  /* 上下留白向左右看齐（但文字块左右仍略宽一点）：两侧差一倍会显得上下「贴边」 */
   padding: clamp(7px, 0.9vh, 9px) clamp(10px, 1.2vh, 12px);
   min-height: 1.6em;
   border-radius: 8px;
@@ -778,7 +789,7 @@ table.criteria tr.dim { opacity: 0.45; }
 .records .rec:hover::after { left: auto; right: 0; max-width: 220px; }
 
 /* 左侧：不可预测性评估 */
-/* 左右留白明显大于上下：文字行距本身自带垂直留白，四周等宽会显得“挤在中间” */
+/* 左右留白明显大于上下：文字行距本身自带垂直留白，四周等宽会显得「挤在中间」 */
 .rand-card { padding: clamp(12px, 1.35vh, 15px) clamp(22px, 2.3vh, 26px); }
 
 /* 所有滚动区一律不显示滚动条（内容仍可用滚轮 / 触控板 / 键盘滚动）：
@@ -918,7 +929,7 @@ html::-webkit-scrollbar,
 
 /* ---------- 响应式 ---------- */
 @media (max-width: 1650px) {
-  /* 面板模式必须保持“三列同一行”：一旦让面板换到下一行，页面高度锁死的情况下
+  /* 面板模式必须保持「三列同一行」：一旦让面板换到下一行，页面高度锁死的情况下
      新行会被面板内容撑高，把对战区压扁（曾出现 arena 只剩 24px 高、页面溢出）。
      所以这里只收窄面板与参数栏，不放行到下一行。 */
   .layout.with-panel {
@@ -926,8 +937,14 @@ html::-webkit-scrollbar,
     grid-template-columns: minmax(0, 1fr) 430px 320px;
     grid-template-areas: "game panel params";
   }
-  /* 面板模式下左栏只有 ~500px 宽：卡片里的内容会换行、变高，而可用高度不变。这里把工具栏收窄，
-     不让它和居中的“补录”按钮叠在一起（尺寸收紧见下面的高度分档）。 */
+}
+
+/* 面板模式把工具栏收窄：三列并排时左栏只有 ~500px 宽，卡片里的内容换行后更高，
+   不收窄会和居中的「补录」按钮叠在一起。
+   只在真正三列并排的宽度区间生效 —— 更窄的屏（见 max-width: 1300px）已退回单列堆叠，
+   左栏就是整幅宽度，不存在挤压；那时若还收窄，一换模式（辅助模式会自动展开面板）
+   工具栏就白跳一下。 */
+@media (min-width: 1301px) and (max-width: 1650px) {
   .layout.with-panel .arena-tools { width: 92px; padding: 5px; }
   .layout.with-panel .arena-tools .btn { padding: 5px 3px; font-size: 10.5px; letter-spacing: 0; }
 }
@@ -944,7 +961,12 @@ html::-webkit-scrollbar,
   .fc-target,
   .fc-note { margin-top: 2px; }
   .fc-ev { min-height: 42px; margin-top: 4px; padding-top: 4px; }
-  /* 面板模式左栏更窄（~465px），内容换行更高 → 再紧一档 */
+}
+
+/* 面板模式左栏更窄（~465px），内容换行后更高 → 再紧一档。
+   与工具栏同理：只在真正三列并排的宽度区间生效 —— 窄屏单列堆叠时面板在下方，
+   不占左栏宽度，再缩只会让切模式时整块对战区无端跳一下。 */
+@media (max-height: 1000px) and (min-width: 1301px) {
   .layout.with-panel .arena { gap: clamp(4px, 0.9vh, 10px); padding: clamp(10px, 1.2vh, 13px) 14px; }
   .layout.with-panel .move-slot { width: clamp(70px, 10.4vh, 126px); height: clamp(70px, 10.4vh, 126px); }
   .layout.with-panel .move-slot .glyph { font-size: clamp(44px, 6.4vh, 70px); }
@@ -952,8 +974,8 @@ html::-webkit-scrollbar,
   .layout.with-panel .choice .glyph { font-size: clamp(36px, 5.2vh, 58px); }
   .layout.with-panel .pick { width: clamp(46px, 5.6vh, 58px); height: clamp(46px, 5.6vh, 58px); }
   .layout.with-panel .pick i { font-size: clamp(24px, 3vh, 32px); }
-  /* 左栏窄时补录按钮组会被推到工具栏正下方，左侧标签“对手出了”会压住工具栏按钮；
-     该信息在上方 who 行（“等对手出招后补录”）里已有，这里直接省掉。 */
+  /* 左栏窄时补录按钮组会被推到工具栏正下方，左侧标签「对手出了」会压住工具栏按钮；
+     该信息在上方 who 行（「等对手出招后补录」）里已有，这里直接省掉。 */
   .layout.with-panel .pick-row .pick-label { display: none; }
 }
 
@@ -963,7 +985,10 @@ html::-webkit-scrollbar,
   .move-slot .glyph { font-size: clamp(76px, 9.4vh, 108px); }
   .choice { width: clamp(115px, 14vh, 165px); height: clamp(115px, 14vh, 165px); }
   .choice .glyph { font-size: clamp(64px, 8vh, 92px); }
-  /* 面板模式左栏更窄、还多一行补录按钮 → 略收一档 */
+}
+
+/* 面板模式左栏更窄、还多一行补录按钮 → 略收一档（同样只在三列并排时） */
+@media (min-height: 1000px) and (min-width: 1301px) {
   .layout.with-panel .move-slot { width: clamp(126px, 15vh, 180px); height: clamp(126px, 15vh, 180px); }
   .layout.with-panel .move-slot .glyph { font-size: clamp(70px, 8.4vh, 98px); }
   .layout.with-panel .choice { width: clamp(104px, 12.4vh, 148px); height: clamp(104px, 12.4vh, 148px); }
@@ -971,8 +996,8 @@ html::-webkit-scrollbar,
 }
 
 @media (max-height: 820px) {
-  /* 尺寸已由上面的高度档统一收放，这里只压那些“配角”文本，给主角腾地方 */
-  .avatar { padding: 2px 9px; font-size: 11.5px; }
+  /* 尺寸已由上面的高度档统一收放，这里只压那些「配角」文本，给主角腾地方 */
+  .avatar { padding: 1.5px 10px 2.5px 8px; font-size: 11.5px; }   /* 与主规则同样的纵横补偿 */
   .who { gap: 9px; font-size: 13px; }
   .tag { padding: 2px 9px; font-size: 11.5px; }
   /* 「选择你的出招」是这一步的操作指引，不能因为要腾地方就压到看不清 */
@@ -980,10 +1005,14 @@ html::-webkit-scrollbar,
   .pick { width: clamp(32px, 4vh, 42px); height: clamp(32px, 4vh, 42px); }
   .pick i { font-size: clamp(17px, 2.2vh, 23px); }
   .rand-note { min-height: 1.6em; }
+}
+
+/* 同上：面板模式的收紧只在三列并排时用 */
+@media (max-height: 820px) and (min-width: 1301px) {
   .layout.with-panel .arena { gap: clamp(4px, 0.7vh, 9px); padding: clamp(10px, 1.2vh, 13px) 14px; }
 }
 @media (max-width: 1300px) {
-  /* 三列放不下的窄屏：退回单列堆叠，并解除页面高度锁定（不再强制“不出滚动条”），
+  /* 三列放不下的窄屏：退回单列堆叠，并解除页面高度锁定（不再强制「不出滚动条」），
      否则内容会被裁掉（既看不到也滚不到）。 */
   html, body { height: auto; }
   body { overflow-y: auto; }
@@ -998,7 +1027,10 @@ html::-webkit-scrollbar,
   .layout > .game,
   .layout > .panel-slot,
   .layout > .params { grid-area: auto; }
-  .panel { position: static; }
+  /* 必须写足三层：上面的「面板绝对定位填满单元格」是 .panel-slot > .panel（两个类），
+     只写 .panel（一个类）会被它盖掉 —— 面板仍脱离文档流，所在行高度塌成 0，
+     整个面板被压成一条横杠（曾在窄屏线上出现）。 */
+  .layout > .panel-slot > .panel { position: static; }
   .score-item .value { font-size: 24px; }
 }
 @media (max-width: 560px) {
@@ -1054,7 +1086,7 @@ table.criteria tr.baseline td { font-weight: 600; }
 
 /* ---------- 策略参数补充 ---------- */
 .params .param-reset { margin-top: clamp(8px, 1.5vh, 14px); padding: 6px 14px; font-size: 12.5px; }
-/* 被自动调参接管：滑块头做成透明芯 + 紫色描边环，克制地表示“由系统托管” */
+/* 被自动调参接管：滑块头做成透明芯 + 紫色描边环，克制地表示「由系统托管」 */
 .param-row input[type="range"][data-lock="auto"] { cursor: not-allowed; }
 .param-row input[type="range"][data-lock="auto"]::-webkit-slider-thumb { background: transparent; box-shadow: inset 0 0 0 2px rgba(169, 156, 255, 0.95), 0 0 10px rgba(150, 140, 255, 0.5); cursor: not-allowed; }
 .param-row input[type="range"][data-lock="auto"]::-moz-range-thumb { background: transparent; border: 2px solid rgba(169, 156, 255, 0.95); box-shadow: 0 0 10px rgba(150, 140, 255, 0.5); cursor: not-allowed; }
