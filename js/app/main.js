@@ -711,7 +711,7 @@
 
   els.hlInput.addEventListener('input', () => {
     const v = Number(els.hlInput.value);
-    els.hlOut.textContent = v > 0 ? v + ' 局' : '不遗忘';
+    els.hlOut.textContent = v + ' 局';
     App.predictor.options.halfLife = v;
     App.predictor.replay(predView());
     renderScores();

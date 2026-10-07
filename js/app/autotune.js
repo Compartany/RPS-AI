@@ -31,7 +31,7 @@
     let sw2 = 0;
     for (let i = 0; i < n; i++) {
       if (isDraw && isDraw(records[i])) continue;
-      const w = hl ? Math.pow(0.5, (n - 1 - i) / hl) : 1;
+      const w = Math.pow(0.5, (n - 1 - i) / hl);
       sw += w;
       sw2 += w * w;
       if (isHit(records[i])) swh += w;
@@ -72,15 +72,15 @@
   /**
    * AI 预测命中率的两个口径：
    *   a = 全部统计（所有对局等权）
-   *   b = 按半衰期加权（近局权重更大；halfLife = 0 时等同 a）
+   *   b = 按半衰期加权（近局权重更大）
    *   n = 加权有效样本量（Kish 有效样本数 (Σw)² / Σw²）
    */
   function hitStats() {
     const a = state.hitTries ? state.hit / state.hitTries : null;
-    const hl = Number(App.predictor.options.halfLife) || 0;
+    const hl = Number(App.predictor.options.halfLife) || 16;
     const log = state.hitLog;
     const len = log.length;
-    if (!hl || !len) return { a, b: a, n: state.hitTries };
+    if (!len) return { a, b: a, n: state.hitTries };
 
     let sw = 0;
     let swh = 0;
@@ -171,7 +171,7 @@
       state.decayRateTable = null;
     }
     els.hlInput.value = String(hl);
-    els.hlOut.textContent = hl > 0 ? hl + ' 局' : '不遗忘';
+    els.hlOut.textContent = hl + ' 局';
 
     if (App.predictor.options.halfLife !== hl) {
       App.predictor.options.halfLife = hl;   // 换了衰减速度，调用方得按新规则重放历史
@@ -192,7 +192,7 @@
     els.alphaOut.textContent = alpha.toFixed(1);
 
     // 各档位评估统一用「当前半衰期」作为权重基准（近期对局权重更大）
-    const baseHl = Number(App.predictor.options.halfLife) || 0;
+    const baseHl = Number(App.predictor.options.halfLife) || 16;
 
     tuneExplore(baseHl);
     tuneConfidence(baseHl);
@@ -200,6 +200,8 @@
 
     // α / 半衰期任一变化，都得回放全部历史重新评估各标准的应验率
     if (alphaChanged || halfLifeChanged) App.predictor.replay(App.predView());
+    // 各半衰期档位模型也得跟上主模型的参数，否则面板上那份档位命中率是另一套参数下测的
+    App.syncDecayModels(alphaChanged);
   }
 
   /**
@@ -209,7 +211,7 @@
    * 与探索上限同一套口径（Agresti-Coull 平滑 + Kish 有效样本量 + 单侧 z 检验），方向相反。
    */
   function syncPredictTrust() {
-    const hl = Number(App.predictor.options.halfLife) || 0;
+    const hl = Number(App.predictor.options.halfLife) || 16;
     const win = state.hitLog.slice(-App.Z_WINDOW);
     let stat = null;
     let trust = 0;

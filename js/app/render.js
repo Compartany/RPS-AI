@@ -47,21 +47,24 @@
     // 提示只挂在整条（#hitRateWrap）上；#hitRate 上残留的 data-tip 要清掉，否则会弹出两条
     els.hitRate.removeAttribute('data-tip');
     els.hitRate.removeAttribute('title');
-    if (hs.a == null) {
+    // 样本不足（连显著性检验都做不了）时只显示占位 —— 这时的命中率只是噪声，显示数字会误导
+    if (hs.a == null || !(hs.n >= App.Z_MIN_SAMPLES)) {
       els.hitRate.textContent = '—';
-      els.hitRateWrap.title = tx('AI 预测命中率：AI 对你下一招的预测命中你实际出招的比例（与电脑实际出招无关）。');
+      els.hitRateWrap.title = tx(`AI 预测命中率：AI 对人类下一招的预测命中人类实际出招的比例（与电脑实际出招无关）。样本满 ${App.Z_MIN_SAMPLES} 局后开始统计。开局十余局内各标准尚未积累出有效依据，预测与随机猜测无异，命中率接近 33% 属正常现象。`);
     } else {
       const a = Math.round(hs.a * 100);
       const b = Math.round((hs.b == null ? hs.a : hs.b) * 100);
-      const hl = Number(App.predictor.options.halfLife) || 0;
-      const hlText = hl > 0 ? `半衰期 ${hl} 局` : '不遗忘（等同全部统计）';
+      const hl = Number(App.predictor.options.halfLife) || 16;
+      const hlText = `半衰期 ${hl} 局`;
       els.hitRate.textContent = `${b}%`;
-      els.hitRateWrap.title = tx('AI 预测命中率：AI 对你下一招的预测命中你实际出招的比例（与电脑实际出招无关）。'
-        + `显示值按${hlText}加权（${b}%），全部统计为 ${a}%。`);
+      els.hitRateWrap.title = tx('AI 预测命中率：AI 对人类下一招的预测命中人类实际出招的比例（与电脑实际出招无关）。'
+        + `显示值按${hlText}加权（${b}%），全部统计为 ${a}%。`
+        + '开局阶段各标准尚未形成有效依据，数值接近随机基准 33% 属正常现象。');
     }
 
+    // 最优胜率同理：非平局局数不足时只显示占位（比例本身还没意义）
     const idealTotal = state.ideal.win + state.ideal.lose;
-    els.idealRate.textContent = idealTotal
+    els.idealRate.textContent = idealTotal >= App.Z_MIN_SAMPLES
       ? `${((state.ideal.win / idealTotal) * 100).toFixed(0)}%`
       : '—';
   }
@@ -457,8 +460,8 @@
       const dwin = state.decayShadow.slice(-App.Z_WINDOW);
       const dt = state.decayRateTable;
       const curHl = Number(els.hlInput.value) || 0;
-      els.hlCompare.innerHTML = cmpTitle('记忆半衰期命中率', dwin.length, tx('预测命中率 = 该档位对下一招的预测命中你实际出招的比例（各档位按自身半衰期加权）')) +
-        App.DECAY_TIERS.map((v, i) => cmpRow(v > 0 ? v + ' 局' : '不遗忘', dt ? dt[i].rate : null, v === curHl)).join('');
+      els.hlCompare.innerHTML = cmpTitle('记忆半衰期命中率', dwin.length, tx('预测命中率 = 该档位对下一招的预测命中人类实际出招的比例（各档位按自身半衰期加权）')) +
+        App.DECAY_TIERS.map((v, i) => cmpRow(v + ' 局', dt ? dt[i].rate : null, v === curHl)).join('');
     }
 
     if (!els.exploreCompare) return;
@@ -502,7 +505,7 @@
     // 命中率按「半衰期加权」口径（近局权重更大），与记分板里的 B 值一致
     const hs = App.hitStats();
     const n = hs.n;
-    if (!(n >= 12)) return null;
+    if (!(n >= App.Z_MIN_SAMPLES)) return null;
 
     const hitRate = hs.b;
 
@@ -549,7 +552,7 @@
     (els.randomness.closest('.rand-card') || els.randomness)
       .style.setProperty('--rand-power', (over ? 0.35 + 0.65 * Math.pow(t, 0.6) : 0).toFixed(3));
     if (!r) {
-      // 未满 12 局：渲染同一套骨架（数值留空），让卡片高度与「评估出来之后」一致，避免跳变
+      // 样本不足：渲染同一套骨架（数值留空），让卡片高度与「评估出来之后」一致，避免跳变
       els.randomness.innerHTML = `
         <div class="rand-head">
           <span>${tx('人类不可预测性评估')}</span>
@@ -574,8 +577,8 @@
             <span class="rand-val dist">—</span>
           </div>
         </div>
-        <div class="rand-verdict">玩满 12 局后开始评估</div>
-        <div class="rand-note">样本满 12 局后开始统计：命中率按<b>半衰期加权</b>口径（近局权重更大），并与随机基准 1/3 比较。</div>`;
+        <div class="rand-verdict">玩满 ${App.Z_MIN_SAMPLES} 局后开始评估</div>
+        <div class="rand-note">样本满 ${App.Z_MIN_SAMPLES} 局后开始统计：命中率按<b>半衰期加权</b>口径（近局权重更大），并与随机基准 1/3 比较。</div>`;
       return;
     }
     const verdict =
@@ -587,8 +590,8 @@
                 : r.score >= 35 ? '规律较明显，AI 已能有效利用'
                   : '规律显著，极易被针对';
     const delta = r.best ? Math.round((r.best.accuracy - 1 / 3) * 100) : 0;
-    const hl = Number(App.predictor.options.halfLife) || 0;
-    const hlNote = hl > 0 ? `（半衰期 ${hl} 局）` : '（全部统计）';
+    const hl = Number(App.predictor.options.halfLife) || 16;
+    const hlNote = `（半衰期 ${hl} 局）`;
     // 与随机基准 33% 的差值（百分点）
     const diffPct = (r.hitRate - 1 / 3) * 100;
     const diffText = `${diffPct >= 0 ? '高' : '低'} ${Math.abs(diffPct).toFixed(0)}pp`;
@@ -602,7 +605,7 @@
       </div>
       <div class="rand-bar"><i style="width:${Math.min(100, r.score)}%"></i></div>
       <div class="rand-rows">
-        <div class="rand-row" title="${tx('AI 对你下一招的预测命中你实际出招的比例（与电脑实际出招无关）；此处按半衰期加权，近局权重更大（半衰期为 0 时等同全部统计）。')}">
+        <div class="rand-row" title="${tx('AI 对人类下一招的预测命中人类实际出招的比例（与电脑实际出招无关）；此处按半衰期加权，近局权重更大（半衰期为 0 时等同全部统计）。开局样本不足时各标准尚未形成依据，数值接近随机基准 33% 属正常现象。')}">
           <span class="rand-name">AI 预测命中率${hlNote}</span>
           <span class="rand-val">${pctText(r.hitRate)}</span>
           <span class="rand-sub">${diffText}</span>

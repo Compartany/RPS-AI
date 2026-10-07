@@ -19,8 +19,9 @@
   const Z_CANDIDATES = [0, 0.5, 1, 1.5, 2];
   const Z_WINDOW = 40;
   const Z_MIN_SAMPLES = 12;
-  // 记忆衰减档位（半衰期，局），取 2 的幂便于按对数均匀覆盖；0 = 不遗忘
-  const DECAY_TIERS = [0, 64, 32, 16, 8];
+  // 记忆衰减档位（半衰期，局），取 2 的幂便于按对数均匀覆盖，只保留会遗忘的档位
+  // （不含「不遗忘」：永久等权记忆会让很久以前的老习惯一直拖着新数据，无法适应打法变化）
+  const DECAY_TIERS = [64, 32, 16, 8];
   // 探索强度档位（保底纯随机概率），从低到高；自动调参在此之间按电脑胜率择优
   const EXPLORE_TIERS = [0, 0.1, 0.2, 0.35, 0.5, 0.7, 1];
 
@@ -278,7 +279,7 @@
     els.alphaOut.textContent = Number(els.alphaInput.value).toFixed(1);
     els.epsOut.textContent = Math.round(Number(els.epsInput.value)) + '%';
     els.confOut.textContent = Number(els.confInput.value).toFixed(1);
-    els.hlOut.textContent = Number(els.hlInput.value) > 0 ? Number(els.hlInput.value) + ' 局' : '不遗忘';
+    els.hlOut.textContent = Number(els.hlInput.value) + ' 局';
     syncParamDisabled();
   }
 
@@ -419,7 +420,7 @@
     // 档案
     emptyProfile, setProfileIntoState, profileOf, parkProfile, takeProfile,
     // 模型
-    rebuildDecayModels,
+    rebuildDecayModels, syncDecayModels,
   };
 
   global.RPSApp = app;

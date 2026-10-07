@@ -217,9 +217,9 @@
      * 先以旧计数评估各标准预测是否应验，再累加新计数。
      */
     learn(history, humanMove, end) {
-      // 时间衰减：每局旧计数乘一次 decay，半衰期 hl 局后权重减半（0 = 不遗忘）
-      const hl = Number(this.options.halfLife) || 0;
-      const decay = hl > 0 ? Math.pow(0.5, 1 / hl) : 1;
+      // 时间衰减：每局旧计数乘一次 decay，半衰期 hl 局后权重减半
+      const hl = Number(this.options.halfLife) || 16;
+      const decay = Math.pow(0.5, 1 / hl);
       for (const e of this.experts) {
         if (e.baseline) continue;   // 随机基线不参与学习
         const key = e.keyFor(history, end);
