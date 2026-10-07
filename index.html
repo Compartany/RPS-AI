@@ -27,7 +27,7 @@
         <span class="value cpu" id="cpuRate">0%</span>
       </div>
       <div class="score-item">
-        <span class="label" id="humanLabel">你的胜率</span>
+        <span class="label" id="humanLabel">人类胜率</span>
         <span class="value human" id="humanRate">0%</span>
       </div>
       <div class="score-records">
@@ -93,11 +93,11 @@
         </div>
       </div>
 
-      <div class="result-banner" id="resultBanner">选择你的出招</div>
+      <div class="result-banner" id="resultBanner">请选择出招</div>
 
       <div class="combatant human">
         <div class="who">
-          <span class="avatar me" id="meAvatar">你</span>
+          <span class="avatar me" id="meAvatar">人类</span>
           <span class="tag" id="humanTag">请出招</span>
         </div>
         <div class="choices" id="choices">
@@ -132,7 +132,7 @@
       <h2>AI 决策依据</h2>
       <button class="close" id="panelClose" type="button" aria-label="关闭">×</button>
     </div>
-    <p class="panel-sub" data-raw="每个「标准」独立统计你的出招习惯，按应验率加权后合成最终预测。">每个「标准」独立统计你的出招习惯，按应验率加权后合成最终预测。</p>
+    <p class="panel-sub" data-raw="每个「标准」独立统计人类的出招习惯，按应验率加权后合成最终预测。">每个「标准」独立统计人类的出招习惯，按应验率加权后合成最终预测。</p>
 
     <div class="forecast" id="forecast"></div>
 
@@ -170,12 +170,12 @@
         <span class="param-label"><label for="autoInput">自动调参</label><input type="checkbox" id="autoInput" checked /></span>
         <output></output>
       </div>
-      <div class="param-row" data-raw-tip="拉普拉斯平滑强度。越小越激进地相信少量样本。（开启「自动调参」时由系统接管，无法手动拖动）">
+      <div class="param-row" data-raw-tip="拉普拉斯平滑强度。数值越小，越倾向采信少量样本。（开启「自动调参」时由系统接管，无法手动拖动）">
         <label for="alphaInput">平滑系数 α</label>
         <input type="range" id="alphaInput" min="0.2" max="3" step="0.1" value="1" />
         <output id="alphaOut">1.0</output>
       </div>
-      <div class="param-row" data-raw-tip="应验率的保守程度（自动调参范围 0~2）。0 = 直接用原应验率，越大越不信任小样本。（开启「自动调参」时由系统接管，无法手动拖动）">
+      <div class="param-row" data-raw-tip="应验率的保守程度（自动调参范围 0~2）。0 = 直接采用原始应验率，数值越大越不采信小样本。（开启「自动调参」时由系统接管，无法手动拖动）">
         <label for="confInput">样本收缩</label>
         <input type="range" id="confInput" min="0" max="3" step="0.1" value="1" />
         <output id="confOut">1.0</output>
@@ -185,7 +185,7 @@
         <input type="range" id="hlInput" min="8" max="64" step="1" value="16" />
         <output id="hlOut">20 局</output>
       </div>
-      <div class="param-row" data-raw-tip="「纯随机出招」的保底概率。越高越难被反向利用，但主动失误也越多；开局几局会自动拉高随机度，约 11 局内回落。勾选框可整体关闭探索。（开启「自动调参」时由系统接管，无法手动拖动）">
+      <div class="param-row" data-raw-tip="「纯随机出招」的保底概率。数值越高越难被反向针对，但主动失误也越多；开局数局会自动提高随机度，约 11 局内回落。勾选框可整体关闭探索。（开启「自动调参」时由系统接管，无法手动拖动）">
         <span class="param-label"><label for="epsInput">探索强度</label><input type="checkbox" id="exploreInput" checked /></span>
         <input type="range" id="epsInput" min="0" max="100" step="1" value="10" />
         <output id="epsOut">10%</output>

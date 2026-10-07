@@ -47,16 +47,16 @@
     }
 
     get desc() {
-      if (this.source === 'freq') return '你历史上三招的整体偏好';
+      if (this.source === 'freq') return '人类历史上三招的整体偏好';
       if (this.source === 'random') return '不看任何信息、每次均匀随机；命中率恒为 1/3，作为衡量其它标准的基准';
       if (this.source === 'self') {
         return this.mode === 'result'
-          ? `你最近 ${this.order} 招之间的胜负关系（每招相对自己上一招）`
-          : `你自己最近连续 ${this.order} 招的出招序列`;
+          ? `人类最近 ${this.order} 招之间的胜负关系（每招相对自己上一招）`
+          : `人类自己最近连续 ${this.order} 招的出招序列`;
       }
       return this.mode === 'result'
-        ? `你最近 ${this.order} 招相对电脑相应招的胜负关系`
-        : `电脑最近连续 ${this.order} 招之后你的应对`;
+        ? `人类最近 ${this.order} 招相对电脑相应招的胜负关系`
+        : `电脑最近连续 ${this.order} 招之后人类的应对`;
     }
 
     /**

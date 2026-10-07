@@ -167,7 +167,7 @@
   function tx(s) {
     if (!isAssist()) return s;
     return String(s)
-      .split('电脑').join('\u0001')   // 先占位，避免与「你」的替换相互干扰
+      .split('电脑').join('\u0001')   // 先占位，避免与「人类」的替换相互干扰
       .split('人类').join('对手')
       .split('你').join('对手')
       .split('\u0001').join('我方');

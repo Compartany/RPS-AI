@@ -184,7 +184,7 @@
       els.resultBanner.textContent = '记录对手出招';
       els.resultBanner.className = 'result-banner';
     } else {
-      els.resultBanner.textContent = '选择你的出招';
+      els.resultBanner.textContent = '请选择出招';
       els.resultBanner.className = 'result-banner';
     }
 
@@ -286,7 +286,7 @@
     const hasData = breakdown.some((b) => !b.baseline && b.matched);
     if (!hasData) {
       els.forecast.innerHTML = `
-        <div class="fc-head">${tx('下招预测（你）')}</div>
+        <div class="fc-head">${tx('下招预测（人类）')}</div>
         <div class="fc-empty">暂无数据 · 打几局后 AI 才有依据</div>`;
     } else {
       const topMove = MOVES.reduce((a, b) => (metaProbs[a] >= metaProbs[b] ? a : b));
@@ -328,12 +328,12 @@
         : `电脑选 <b>${EMOJI[cpuMove]} ${NAMES[cpuMove]}</b>${targetNote}`;
       const targetTip = assist
         ? 'AI 先预测对手最可能出什么，再按「期望收益最高」给出我方该出的招。'
-        : 'AI 按「期望收益最高」的一招出招。括号说明本局的特殊情况：「随机出招」= 所有标准应验率都没超过随机基准，只能随机出招；「探索」= 本局触发探索扰动，并非按期望收益所选；「按分布取样」= 预测尚未显著优于随机，改按预测分布取样。';
+        : 'AI 按「期望收益最高」的一招出招。括号说明本局的特殊情况：「随机出招」= 所有标准应验率均未超过随机基准，只能出随机招；「探索」= 本局触发探索扰动，并非按期望收益所选；「按分布取样」= 预测尚未显著优于随机，改按预测分布取样。';
       els.forecast.innerHTML = `
-        <div class="fc-head">${tx('下招预测（你）')}</div>
+        <div class="fc-head">${tx('下招预测（人类）')}</div>
         ${bars}
         ${weightSum > 0
-          ? `<div class="fc-ev" data-tip="${tx('每招的期望收益 = 该招击败你的概率 − 该招被你击败的概率，取最大者出招。')}"><span class="fc-ev-head">期望收益</span><div class="fc-ev-chips">${evRows}</div></div>`
+          ? `<div class="fc-ev" data-tip="${tx('每招的期望收益 = 该招击败人类的概率 − 该招被人类击败的概率，取最大者出招。')}"><span class="fc-ev-head">期望收益</span><div class="fc-ev-chips">${evRows}</div></div>`
           : `<div class="fc-alert">${tx('所有标准的应验率都没超过随机基准 33%，AI 暂无可信依据，本局只能随机出招。')}</div>`}
         <div class="fc-target" data-tip="${targetTip}">${targetLine}${noData ? '' : `，期望收益 <b>${bv >= 0 ? '+' : ''}${bv.toFixed(2)}</b>`}</div>
         ${assist ? '' : `<div class="fc-note" data-tip="${epsTip}">${noData ? '' : `本局随机出招概率 ${(epsilon * 100).toFixed(1)}%`}</div>`}
@@ -391,8 +391,8 @@
           predCell = `${EMOJI[item.prediction]} ${NAMES[item.prediction]}`;
         }
         const countsTitle = isRel
-          ? tx('在「当前依据」这个局面下，历史上你各关系（胜/负/平）出现的次数')
-          : tx('在「当前依据」这个局面下，历史上你各招（✊/✋/✌）出现的次数');
+          ? tx('在「当前依据」所示的局面下，历史上人类各关系（胜/负/平）出现的次数')
+          : tx('在「当前依据」所示的局面下，历史上人类各招（✊/✋/✌）出现的次数');
         const keyText =
           item.key === 'ALL'
             ? '全部历史'
@@ -440,10 +440,10 @@
       ['自适应扰动', Number(pd.adaptiveEps) || 0, false],
     ];
     const top = items.reduce((a, b) => (b[1] > a[1] ? b : a));
-    const tip = '本局真正采用的纯随机出招概率 = 三项取最大：'
+    const tip = '本局实际采用的纯随机出招概率 = 三项中取最大值：'
       + items.map(([n, v, capped]) => `${n} ${(v * 100).toFixed(1)}%${capped ? '（受上限约束）' : '（不受上限约束）'}`).join('、')
-      + `。当前起作用的是「${top[0]}」`
-      + (top[2] ? '。' : '——它不受上限约束，所以会比参数面板里的「探索强度上限」高。');
+      + `。当前由「${top[0]}」决定`
+      + (top[2] ? '。' : '——它不受上限约束，故而高于参数面板中的「探索强度上限」。');
     return { top, tip };
   }
 
@@ -453,7 +453,7 @@
     const win = state.shadow.slice(-App.Z_WINDOW);
     const t = state.rateTable;
     const cur = Number(els.confInput.value) || 0;
-    els.confCompare.innerHTML = cmpTitle('收缩档位命中率', win.length, tx('预测命中率 = 该档位对下一招的预测命中你实际出招的比例（以当前半衰期为权重基准）')) +
+    els.confCompare.innerHTML = cmpTitle('收缩档位命中率', win.length, tx('预测命中率 = 该档位对下一招的预测命中人类实际出招的比例（以当前半衰期为权重基准）')) +
       App.Z_CANDIDATES.map((zz, i) => cmpRow(String(zz), t ? t[i].rate : null, Math.abs(zz - cur) < 1e-9)).join('');
 
     if (els.hlCompare) {
@@ -472,13 +472,13 @@
     els.exploreCompare.innerHTML =
       cmpTitle('探索上限判定', state.bestLog.slice(-App.Z_WINDOW).length,
         isAssist()
-          ? '决定 AI 最多能掺多少「纯随机出招」。只有当对手已经看穿它、它老老实实按预测出招反而赢不了的时候（胜率明显低于瞎猜的 33%），才会开始掺随机。注意：这个上限只管「探索强度」这一项。'
-          : tx('决定 AI 最多能掺多少「纯随机出招」。只有当你已经看穿它、它老老实实按预测出招反而赢不了的时候（胜率明显低于瞎猜的 33%），才会开始掺随机。'
-            + '注意：这个上限只管「探索强度」这一项。下面的「本局实际随机概率」还可能被开局随机度或自适应扰动顶上去，所以会高于上限，并不矛盾。')) +
-      `<div class="exp-row" data-tip="${tx('最近这些局里，AI 如果每次都按预测最优的那招出，实际赢下的比例（平局不算）。约 33% 就是瞎猜的水平；明显更低，说明它的套路被你看穿了。')}"><span>按最优出招的胜率</span><b>${st ? (st.w * 100).toFixed(1) + '%' : '\u2014'}</b></div>` +
-      `<div class="exp-row" data-tip="${tx('实际参与统计的对局数（按半衰期加权后的等效数量，越近的局权重越大；平局不计入）。局数太少时结果不可靠，所以不足 12 局不做判定。')}"><span>有效局数</span><b>${st ? st.nEff.toFixed(1) : '\u2014'}</b></div>` +
-      `<div class="exp-row" data-tip="${tx('上面那个差距有多可信。≤ 1 视为「没有明显差别」，此时完全不掺随机；到 3 就认为确实被针对了，上限拉满。')}"><span>可信程度</span><b>${st ? st.z.toFixed(2) : '\u2014'}</b></div>` +
-      `<div class="exp-row" data-tip="${tx('自动调参能给「探索强度」档位开到的最大值（由显著性检验决定）。它只管探索强度这一项；开局随机度与自适应扰动不受它约束，所以本局实际随机概率可以比它高。')}"><span>探索强度上限</span><b>${cap == null ? '\u2014' : cap + '%'}</b></div>` +
+          ? '决定 AI 最多能加入多少「纯随机出招」。只有当对手已能反制它、它照预测出招反而赢不了时（胜率明显低于完全随机的 33%），才会开始加入随机。注意：该上限仅约束「探索强度」这一项。'
+          : tx('决定 AI 最多能加入多少「纯随机出招」。只有当人类已能反制它、它照预测出招反而赢不了时（胜率明显低于完全随机的 33%），才会开始加入随机。'
+            + '注意：该上限仅约束「探索强度」这一项。下方的「本局实际随机概率」还可能被开局随机度或自适应扰动抬高，因而高于上限，并不矛盾。')) +
+      `<div class="exp-row" data-tip="${tx('最近这些局里，AI 每次都按预测最优的一招出招时实际赢下的比例（平局不计）。约 33% 即完全随机的水平；明显更低则说明人类已能反向利用其预判。')}"><span>按最优出招的胜率</span><b>${st ? (st.w * 100).toFixed(1) + '%' : '\u2014'}</b></div>` +
+      `<div class="exp-row" data-tip="${tx(`实际参与统计的对局数（按半衰期加权后的等效数量，越近的对局权重越大；平局不计入）。样本过少时结果不可靠，故不足 ${App.Z_MIN_SAMPLES} 局不做判定。`)}"><span>有效局数</span><b>${st ? st.nEff.toFixed(1) : '\u2014'}</b></div>` +
+      `<div class="exp-row" data-tip="${tx('上述差距的显著性。≤ 1 视为无明显差别，此时完全不加入随机；达到 3 即视为确实可被针对，上限取满。')}"><span>可信程度</span><b>${st ? st.z.toFixed(2) : '\u2014'}</b></div>` +
+      `<div class="exp-row" data-tip="${tx('自动调参能为「探索强度」档位取到的最大值（由显著性检验决定）。该上限仅约束探索强度；开局随机度与自适应扰动不受其约束，因此本局实际随机概率可能高于它。')}"><span>探索强度上限</span><b>${cap == null ? '\u2014' : cap + '%'}</b></div>` +
       (isAssist() ? '' : `<div class="exp-row" data-tip="${epsInfo ? epsInfo.tip : '本局尚未开始。'}"><span>本局实际随机概率</span><b>${epsInfo ? (pd.epsilon * 100).toFixed(1) + '%' : '\u2014'}</b></div>`);
 
     if (!els.predictCompare) return;
@@ -488,11 +488,11 @@
       cmpTitle('押注判定', state.hitLog.slice(-App.Z_WINDOW).length,
         isAssist()
           ? '辅助模式下 AI 不亲自出招（只给建议），这里展示的是模型内部的押注策略指标，仅供观察。'
-          : tx('决定 AI 要不要「押注」自己的预测。只有预测被证明确实比瞎猜准时，它才会挑期望收益最高的那招出；否则按预测分布随机取一招，避免总出同一招被你看穿。')) +
-      `<div class="exp-row" data-tip="${tx('最近这些局里，AI 对下一招的预测命中你实际出招的比例（跟它自己出什么招无关）。约 33% 就是瞎猜的水平。')}"><span>预测命中率</span><b>${ps ? (ps.w * 100).toFixed(1) + '%' : '\u2014'}</b></div>` +
-      `<div class="exp-row" data-tip="${tx('实际参与统计的对局数（按半衰期加权后的等效数量，越近的局权重越大）。局数太少时结果不可靠，所以不足 12 局不做判定。')}"><span>有效局数</span><b>${ps ? ps.nEff.toFixed(1) : '\u2014'}</b></div>` +
-      `<div class="exp-row" data-tip="${tx('「预测确实比瞎猜准」这一点的可信度。≤ 1 视为没差别，此时不押注；到 3 就完全信任预测，每局都押注最优招。')}"><span>可信程度</span><b>${ps ? ps.z.toFixed(2) : '\u2014'}</b></div>` +
-      `<div class="exp-row" data-tip="${tx('本局有多大概率直接押注最优招，剩下的概率按预测分布取样（出招仍偏向它认为你更可能出的那一招，只是不再固定）。')}"><span>押注概率</span><b>${tp}%</b></div>`;
+          : tx('决定 AI 是否「押注」自己的预测。只有预测被证明确实优于随机时，它才挑期望收益最高的一招出；否则按预测分布随机取一招，避免长期出同一招而被人类反制。')) +
+      `<div class="exp-row" data-tip="${tx('最近这些局里，AI 对下一招的预测命中人类实际出招的比例（跟它自己出什么招无关）。约 33% 即完全随机的水平；开局样本不足时各标准尚未形成依据，接近 33% 属正常现象。')}"><span>预测命中率</span><b>${ps ? (ps.w * 100).toFixed(1) + '%' : '\u2014'}</b></div>` +
+      `<div class="exp-row" data-tip="${tx(`实际参与统计的对局数（按半衰期加权后的等效数量，越近的对局权重越大）。样本过少时结果不可靠，故不足 ${App.Z_MIN_SAMPLES} 局不做判定。`)}"><span>有效局数</span><b>${ps ? ps.nEff.toFixed(1) : '\u2014'}</b></div>` +
+      `<div class="exp-row" data-tip="${tx('「预测确实优于随机」这一判断的显著性。≤ 1 视为无差别，此时不押注；达到 3 则完全采信预测，每局押注最优招。')}"><span>可信程度</span><b>${ps ? ps.z.toFixed(2) : '\u2014'}</b></div>` +
+      `<div class="exp-row" data-tip="${tx('本局直接押注最优招的概率，其余概率按预测分布取样（出招仍偏向其认为人类更可能出的一招，但不再固定）。')}"><span>押注概率</span><b>${tp}%</b></div>`;
   }
 
   /* ============================== 不可预测性评估 ============================== */
@@ -582,8 +582,8 @@
       return;
     }
     const verdict =
-      r.score >= 140 ? (isAssist() ? '对手简直是台机器：一点随机性都没有' : 'AI 彻底崩了：它对你毫无还手之力——开挂了吧？！')
-        : r.score > 110 ? (isAssist() ? '对手的套路已经被你摸透，反着它出招就赢' : 'AI 已经懵了——它的套路全被你反手用在自己身上')
+      r.score >= 140 ? (isAssist() ? '对手简直是台机器：一点随机性都没有' : 'AI 彻底崩了：它对人类毫无还手之力——开挂了吧？！')
+        : r.score > 110 ? (isAssist() ? '对手的套路已经被看透，反着它出招就赢' : 'AI 已经懵了——它的套路全被人类反手用在自己身上')
           : r.score > 100 ? (isAssist() ? '像是摸到了对手的门道，开始反着它出招' : '像是摸到了 AI 的门道，开始反着它出招')
             : r.score >= 90 ? '与真随机无显著差异，AI 无从利用'
               : r.score >= 65 ? '存在轻微规律，AI 可部分利用'
@@ -610,15 +610,15 @@
           <span class="rand-val">${pctText(r.hitRate)}</span>
           <span class="rand-sub">${diffText}</span>
         </div>
-        <div class="rand-cmp" title="${tx('33% 是「你完全乱出」时 AI 也能猜中的比例（随机基准）；你的命中率低于它，说明 AI 反而抓不住你。')}">
+        <div class="rand-cmp" title="${tx('33% 是人类完全随机出招时 AI 亦能命中的比例（随机基准）；命中率低于它，说明 AI 反而把握不住人类。')}">
           <div class="rand-cmp-track"><i style="width:${(r.hitRate * 100).toFixed(1)}%"></i><u style="left:33.333%"></u></div>
           <div class="rand-cmp-legend"><span class="l0">0%</span><span class="lbase">随机基准 33%</span><span class="l100">100%</span></div>
         </div>
-        <div class="rand-row" title="${tx('各「标准」里收缩后应验率最高的那一条——也就是你最容易被抓住的破绽（小样本会被压向 1/3，避免噪声误报）。')}">
+        <div class="rand-row" title="${tx('各「标准」中收缩后应验率最高的一项 —— 即人类最容易被把握的破绽（小样本会被压向 1/3，避免噪声误报）。')}">
           <span class="rand-name">最大可预测优势</span>
           <span class="rand-val">${bestText}</span>
         </div>
-        <div class="rand-row" title="${tx('你全部对局里 ✊ / ✋ / ✌ 各自的出现比例（仅作直观参考）。')}">
+        <div class="rand-row" title="${tx('人类全部对局里 ✊ / ✋ / ✌ 各自的出现比例（仅作直观参考）。')}">
           <span class="rand-name">出招分布</span>
           <span class="rand-val dist">${MOVES.map((m) => `<b>${EMOJI[m]} ${((r.cnt[m] / r.total) * 100).toFixed(0)}%</b>`).join('')}</span>
         </div>
@@ -696,9 +696,9 @@
 
     els.nistBody.innerHTML = `
       <div class="nist-intro">
-        <p><b>在测什么？</b>${tx('测的是<b>你的出招序列有多像真随机</b>——也就是「你的手够不够随机、有多容易被 AI 抓住」。')}</p>
+        <p><b>在测什么？</b>${tx('测的是<b>人类的出招序列有多像真随机</b>——也就是「人类的手够不够随机、有多容易被 AI 抓住」。')}</p>
         <p>${tx(`把每招按 2 比特编码成比特流（当前 <b>${bits.length}</b> 比特），再跑 NIST SP 800-22 的 <b>15 项</b>统计检验。
-        每项检验都在问同一个问题：<b>这一段看起来像不像真随机</b>。全部通过 = 你的出招与真随机无法区分；
+        每项检验都在问同一个问题：<b>这一段看起来像不像真随机</b>。全部通过 = 人类的出招与真随机无法区分；
         未通过的项目，就是 AI 可能加以利用的规律。`)}</p>
       </div>
       <div class="nist-score">
@@ -723,14 +723,14 @@
         样本越多，结论越稳定。
       </p>
       <div class="nist-intro">
-        <p><b>p 值怎么读？</b>${tx('p 值是「<b>假如你的出招完全随机</b>，单靠运气也能出现这么极端结果的概率」。')}</p>
+        <p><b>p 值怎么读？</b>${tx('p 值是「<b>假如人类的出招完全随机</b>，单靠运气也能出现这么极端结果的概率」。')}</p>
         <p>${tx(`所以<b> p 越大 = 越看不出异常</b>：比如 p = 0.40，意思是「随机的话有 40% 的机会看起来比这还夸张」，完全正常；
         而 p = 0.005，意思是「随机的话只有 0.5% 的机会会这样」，小到不太像巧合，于是判为「有规律」。`)}</p>
         <p>${tx(`判定线用 NIST 惯例的 <b>0.01</b>：<b>≥ 0.01 通过</b>、<b>0.01 ~ 0.05 边缘</b>（有点可疑，但还不足以下结论）、<b>低于 0.01 未通过</b>。
-        p 值不是「你随机的概率」，也不是越大越好——只要不低于 0.01，就说明这项检验没抓到问题。`)}</p>
+        p 值不是「人类随机的概率」，也不是越大越好——只要不低于 0.01，就说明这项检验没抓到问题。`)}</p>
       </div>
       <table class="nist-table">
-        <thead><tr><th>#</th><th>检验项</th><th title="该项检验算出的数值，与 p 值一一对应">统计量</th><th title="${tx('假如你的出招完全随机，也能出现这么极端结果的概率。≥ 0.01 视为通过。')}">p 值</th><th title="通过 = 没抓到规律；未通过 = 这项检验发现了可疑规律">判定</th></tr></thead>
+        <thead><tr><th>#</th><th>检验项</th><th title="该项检验算出的数值，与 p 值一一对应">统计量</th><th title="${tx('若人类出招完全随机，出现同等极端结果的概率。≥ 0.01 视为通过。')}">p 值</th><th title="通过 = 没抓到规律；未通过 = 这项检验发现了可疑规律">判定</th></tr></thead>
         <tbody>
           ${rows
             .map((r, i) => `

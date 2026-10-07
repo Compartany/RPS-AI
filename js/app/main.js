@@ -53,7 +53,7 @@
         局号: round,
         电脑出招: `${NAMES[d.cpuMove]}(${d.cpuMove})`,
         决策来源: source,
-        预测你出: `${NAMES[d.target]}(${d.target})`,
+        预测人类出: `${NAMES[d.target]}(${d.target})`,
         预测最大概率: Math.max(d.metaProbs.R, d.metaProbs.P, d.metaProbs.S),
         探索概率: d.epsilon,
         押注概率: d.trust,
@@ -417,8 +417,8 @@
       ? `${state.userName}胜率`
       : (isAssist() ? '我方胜率' : '人类胜率');
     els.modeBtn.setAttribute('data-tip', isAssist()
-      ? 'AI 替你出招（点击切换到对战模式）'
-      : '你 vs AI（点击切换到辅助模式）');
+      ? 'AI 代我方出招（点击切换到对战模式）'
+      : '人类 vs AI（点击切换到辅助模式）');
     applyTerms();
     // 面板默认状态：辅助模式展开（要边出边看预测依据），对战模式收起
     if (!keepPanel) togglePanel(isAssist());
