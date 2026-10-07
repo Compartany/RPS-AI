@@ -215,11 +215,21 @@
   function importSave(file) {
     const reader = new FileReader();
     reader.onload = () => {
+      let d;
       try {
-        applySave(App.parseSave(reader.result));
+        d = App.parseSave(reader.result);
       } catch (err) {
         alert('存档导入失败：' + err.message);
+        return;
       }
+      // 导入会顶掉现有的一切，也问一句
+      askConfirm('确定导入？现有数据将被覆盖。', '导入', () => {
+        try {
+          applySave(d);
+        } catch (err) {
+          alert('存档导入失败：' + err.message);
+        }
+      });
     };
     reader.onerror = () => alert('存档读取失败');
     reader.readAsText(file);
@@ -555,6 +565,59 @@
 
   /* ============================== 事件 ============================== */
 
+  /* ---------- 二次确认 ---------- */
+
+  // 待确认的动作（点「确认」时执行）
+  let askAction = null;
+  let askExtraAction = null;
+  let askCloseAction = null;       // 关掉浮层（取消 / Esc / 点背景）时要执行的收尾动作
+
+  /**
+   * 不可逆操作先问一句（自绘浮层；原生 confirm 太丑，也不属于这个页面的风格）。
+   * @param extra 可选的次要动作 { label, onPick }，靠左显示 —— 用于「本次不再提醒」这类一次性选项
+   */
+  function askConfirm(text, okLabel, onOk, extra) {
+    els.askText.textContent = text;
+    els.askOk.textContent = okLabel;
+    els.askOk.className = 'btn danger';      // 会丢东西的动作统一用危险色
+    els.askCancel.textContent = '取消';
+    askAction = onOk;
+    askCloseAction = null;
+    if (extra) {
+      els.askExtra.textContent = extra.label;
+      els.askExtra.hidden = false;
+      askExtraAction = extra.onPick;
+    } else {
+      els.askExtra.hidden = true;
+      askExtraAction = null;
+    }
+    els.askModal.hidden = false;
+    els.askCancel.focus();           // 焦点给「取消」：手快回车也不会误删
+  }
+
+  function closeAsk() {
+    const run = askCloseAction;
+    els.askModal.hidden = true;
+    els.askExtra.hidden = true;
+    askAction = null;
+    askExtraAction = null;
+    askCloseAction = null;
+    if (run) run();
+  }
+
+  els.askOk.addEventListener('click', () => {
+    const run = askAction;
+    closeAsk();
+    if (run) run();
+  });
+  els.askExtra.addEventListener('click', () => {
+    const run = askExtraAction;
+    closeAsk();
+    if (run) run();
+  });
+  els.askCancel.addEventListener('click', closeAsk);
+  els.askBackdrop.addEventListener('click', closeAsk);
+
   /** 辅助模式：补录对手（真人）的实际出招 —— 录完立刻结算 */
   function pickOpp(move) {
     if (state.revealed || !isAssist()) return;
@@ -585,11 +648,17 @@
   els.modeBtn.addEventListener('click', () => setMode(isAssist() ? 'duel' : 'assist'));
 
   document.addEventListener('keydown', (ev) => {
+    // 确认浮层优先：在输入框里按 Esc 也应该能关掉它
+    if (ev.key === 'Escape' && !els.askModal.hidden) {
+      closeAsk();
+      return;
+    }
     if (ev.target.tagName === 'INPUT') return;
     if (ev.key === 'Escape' && !els.nistModal.hidden) {
       els.nistModal.hidden = true;
       return;
     }
+    if (!els.askModal.hidden) return;
     if (!els.nistModal.hidden) return;
     const idx = ['1', '2', '3'].indexOf(ev.key);
     if (idx >= 0) {
@@ -599,7 +668,25 @@
     }
   });
 
-  els.resetBtn.addEventListener('click', resetAll);
+  /** 清空全部：所有名字的档案一并删掉，回到还没起名的状态 */
+  function wipeAll() {
+    for (const k of Object.keys(App.parked)) delete App.parked[k];
+    if (App.isNamedKey(state.key)) {
+      if (isAssist()) state.opponent = '';
+      else state.userName = '';
+      state.key = App.currentKey();
+    }
+    App.setProfileIntoState(null);
+    restartRound(false);
+  }
+
+  // 「重置数据」先问范围：只清当前这份，还是全部清空。后者更狠，所以选它还得再确认一次。
+  els.resetBtn.addEventListener('click', () => {
+    askConfirm('确定删除记录？', '删除当前', resetAll, {
+      label: '删除全部',
+      onPick: () => askConfirm('确定删除全部数据？', '删除全部', wipeAll),
+    });
+  });
   els.nistBtn.addEventListener('click', () => {
     els.nistModal.hidden = false;
     els.nistBody.innerHTML = '<div class="nist-loading">正在跑 15 项检验（累积和拆正向/反向共 16 行）+ 200 次零分布标定…</div>';

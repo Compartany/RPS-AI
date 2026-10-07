@@ -497,6 +497,40 @@ body {
 }
 .btn.primary:hover { box-shadow: 0 14px 34px rgba(123, 108, 255, 0.5); }
 
+/* ---------- 二次确认：不可逆操作先问一句 ---------- */
+.ask-card {
+  position: relative;
+  width: min(380px, 100%);
+  padding: 18px 20px 16px;
+  border-radius: 16px;
+  background: linear-gradient(160deg, rgba(34, 46, 88, 0.98), rgba(20, 28, 58, 0.98));
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: var(--shadow);
+}
+.ask-text { margin: 0 0 14px; font-size: 13px; line-height: 1.7; color: var(--text-2); }
+.ask-actions { display: flex; justify-content: flex-end; gap: 8px; }
+/* 次要选项（如「删除（不再提醒）」）靠左：别和确认按钮挤在一起，免得点错。
+   它本身也是个删除动作，所以用同色系的淡红底 —— 与实心的主按钮分出层次，又不至于像 ghost 那样素。 */
+.ask-actions > .btn.ask-extra {
+  margin-right: auto;
+  border-color: rgba(255, 107, 129, 0.45);
+  background: rgba(255, 107, 129, 0.14);
+  color: var(--cpu-soft);
+}
+.ask-actions > .btn.ask-extra:hover {
+  border-color: rgba(255, 107, 129, 0.75);
+  background: rgba(255, 107, 129, 0.26);
+  color: #fff;
+}
+/* 危险动作（删数据）：用对手那套红，一眼看出跟「确定」不一样 */
+.btn.danger {
+  background: linear-gradient(135deg, #ff4d6d, #b5179e);
+  border: 0;
+  color: #fff;
+  box-shadow: 0 8px 20px rgba(255, 77, 109, 0.32);
+}
+.btn.danger:hover { box-shadow: 0 12px 26px rgba(255, 77, 109, 0.46); }
+
 /* ---------- 分析面板 ---------- */
 .panel { padding: 14px 16px 16px; }
 .panel-head { display: flex; align-items: center; justify-content: space-between; }

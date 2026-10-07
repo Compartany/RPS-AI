@@ -54,7 +54,7 @@
       <div class="arena-tools">
         <button class="btn ghost" id="exportBtn" type="button">导出存档</button>
         <button class="btn ghost" id="importBtn" type="button">导入存档</button>
-        <button class="btn ghost" id="resetBtn" type="button">重置数据</button>
+        <button class="btn ghost" id="resetBtn" type="button" data-tip="清空记录：可仅清除当前名字的记录，或全部清除">重置数据</button>
         <button class="btn ghost" id="nistBtn" type="button">NIST 检测</button>
         <button class="btn primary" id="panelBtn" type="button">显示分析面板</button>
         <input type="file" id="importFile" accept=".rps,text/plain" hidden />
@@ -206,6 +206,19 @@
       <button class="close" id="nistClose" type="button" aria-label="关闭">×</button>
     </div>
     <div class="modal-body" id="nistBody"></div>
+  </div>
+</div>
+
+<!-- 不可逆操作的二次确认（删掉某个人 / 清空当前数据） -->
+<div class="modal" id="askModal" hidden>
+  <div class="modal-backdrop" id="askBackdrop"></div>
+  <div class="ask-card">
+    <p class="ask-text" id="askText"></p>
+    <div class="ask-actions">
+      <button class="btn ghost ask-extra" id="askExtra" type="button" hidden></button>
+      <button class="btn ghost" id="askCancel" type="button">取消</button>
+      <button class="btn danger" id="askOk" type="button">删除</button>
+    </div>
   </div>
 </div>
 
