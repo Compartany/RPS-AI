@@ -648,6 +648,41 @@
 
   els.modeBtn.addEventListener('click', () => setMode(isAssist() ? 'duel' : 'assist'));
 
+  els.nameInput.addEventListener('focus', () => { hideNameToast(); showNameMenu(); });
+  els.nameInput.addEventListener('input', () => { showNameMenu(); syncNameSave(); });   // 边打边筛，顺便看要不要露出保存按钮
+  // 没保存就离开输入框：把框里的字丢回去，还原成已生效的名字 —— 免得框里显示的和图上用的对不上
+  els.nameInput.addEventListener('blur', () => {
+    els.nameMenu.hidden = true;
+    const now = App.predictedName();
+    if (els.nameInput.value !== now) {
+      els.nameInput.value = now;
+      syncNameSave();
+      showNameToast('名字没保存上');
+    }
+  });
+
+  // 名字框一框两用（对战 = 我，辅助 = 对手），但两种情况下都只在明确保存时才生效：
+  // 回车、或点框内的「保存」；从候选列表里选一项也算。单单离开输入框不算 ——
+  // 顺手点一下别处就把名字换了会连带把数据换档，太随便了。
+  els.nameInput.addEventListener('keydown', (ev) => {
+    if (ev.key !== 'Enter') return;
+    ev.preventDefault();
+    commitName();
+  });
+  // 用 mousedown 抢在输入框失焦之前生效（click 也行，但这里跟候选列表保持一致）
+  els.nameSave.addEventListener('mousedown', (ev) => {
+    ev.preventDefault();
+    commitName();
+  });
+  // 清空名字：清空并立刻生效，也就是切回无名档。之后若不另填名字，离开输入框也保持无名档
+  // （已生效的名字本来就是空的，没什么可还原）；接着输新名字再按保存即可。
+  els.nameClear.addEventListener('mousedown', (ev) => {
+    ev.preventDefault();
+    els.nameInput.value = '';
+    commitName();
+    els.nameInput.focus();      // 留在框里接着输；聚焦会带出候选列表
+  });
+
   document.addEventListener('keydown', (ev) => {
     // 确认浮层优先：在输入框里按 Esc 也应该能关掉它
     if (ev.key === 'Escape' && !els.askModal.hidden) {
