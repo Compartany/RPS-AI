@@ -167,6 +167,7 @@
     renderArena();
     renderPanel();
     renderHistory();
+    App.autosave();          // 每局结算后就落盘：刷新最多只吃掉正在打的那一局
 
     setTimeout(() => {
       if (state.revealed) startRound();
@@ -183,6 +184,7 @@
     renderScores();
     renderHistory();
     startRound();
+    App.autosave();
   }
 
   /* ============================== 存档 ============================== */
@@ -264,6 +266,7 @@
     renderScores();
     renderHistory();
     startRound();
+    App.autosave();          // 导入 / 恢复之后立刻落盘，之后刷新就是这一份
   }
 
   /* ============================== 模式切换 ============================== */
@@ -424,6 +427,122 @@
     renderScores();
     renderHistory();
     startRound();
+    App.autosave();          // 换档 / 切模式 / 重置之后，落盘的内容也跟着换
+  }
+
+  /**
+   * 换到「当前模式 + 当前名字」对应的那份数据：先把现在这套寄存好，再取回目标那套。
+   * 名字没变时走这一趟也安全（存进去再取出来，数据原样）—— 名字才决定数据归谁，
+   * 所以「改名」就等于「换一份数据」。
+   */
+  function switchProfile() {
+    App.parkProfile();
+    App.takeProfile(App.currentKey());
+    restartRound(true);            // 只是换个名字：别把面板的开合状态也重置了
+  }
+
+  /** 切换玩法：两种玩法下「被预测的人」可能不是同一个，所以换完要重新取档案 */
+  function setMode(mode) {
+    if (mode === state.mode) return;
+    App.parkProfile();                 // 先按旧模式的口径寄存（辅助模式的现场是「我方 / 对手」）
+    state.mode = mode;
+    App.takeProfile(App.currentKey()); // 再按新模式的口径取回 —— 名字相同时就是同一份数据，接着往下记
+    restartRound(false);
+  }
+
+  /**
+   * 给「还没名字」的那份数据起个名：只把归属改到这个名下，数据原地不动。
+   * （所以没名字时打的几局不会白打 —— 起个名就留下了。）
+   */
+  function adoptProfile() {
+    state.key = App.currentKey();
+    syncModeUI(true);
+    renderScores();
+    renderArena();
+    renderPanel();
+    renderHistory();
+  }
+
+  // 本次会话里删过几个人；以及「本次不再提醒」开关（都只在内存里，刷新页面即恢复提醒）
+  let deletedCount = 0;
+  let skipDeleteAsk = false;
+
+  /**
+   * 删除某个人（先问一句）。
+   * 连删第二个起，确认框会多一个「本次不再提醒」—— 它只活在这次页面会话里，刷新后又开始问。
+   */
+  function deleteProfile(name) {
+    if (skipDeleteAsk) {
+      removeProfile(name);
+      return;
+    }
+    const doIt = () => {
+      deletedCount++;
+      removeProfile(name);
+    };
+    askConfirm(
+      `确定删除「${name}」及其记录？`,
+      '删除',
+      doIt,
+      deletedCount >= 1
+        ? { label: '删除（不再提醒）', onPick: () => { skipDeleteAsk = true; doIt(); } }
+        : null
+    );
+  }
+
+  /**
+   * 真正删掉某个名字下的数据。
+   * 正好是当前在用的那份时，连名字一起清掉并回到「还没起名」—— 否则列表里会留一个空壳，
+   * 看着像没删掉。（只想清空数据、名字接着用，那是「重置数据」按钮的事。）
+   */
+  function removeProfile(name) {
+    const key = 'p:' + App.cleanName(name);
+    delete App.parked[key];
+    if (state.key === key) {
+      if (isAssist()) state.opponent = '';
+      else state.userName = '';
+      state.key = App.currentKey();
+      App.setProfileIntoState(null);
+      restartRound(true);
+    }
+    showNameMenu();                // 列表里把这个名字摘掉
+    App.autosave();                // 删掉的人不该在下次刷新之后又回来
+  }
+
+  /**
+   * 改完名字之后该干什么：
+   *   原来就带着名字 → 换一份数据（旧名字那份留在原地）
+   *   原来没名字、这个名字又是全新的 → 把手上这份直接归给它（＝给刚打的这些起个名）
+   *   原来没名字、但这个名字已经有数据 → 取回那一份
+   */
+  function afterRename(wasUnnamed) {
+    const key = App.currentKey();
+    if (wasUnnamed && !App.parked[key]) adoptProfile();
+    else switchProfile();
+  }
+
+  /** 给我方起名（对战模式）：名字就是这个人的数据归到哪一份 */
+  function setUserName(name) {
+    const clean = App.cleanName(name);
+    els.nameInput.value = clean;           // 立即回写：去空白、截断后的结果当场可见
+    if (clean !== state.userName) {
+      const wasUnnamed = !App.cleanName(App.predictedName());   // 改之前还没名字？
+      state.userName = clean;
+      afterRename(wasUnnamed);
+    }
+    syncNameSave();                        // 已回写、已换好档：按钮该收就收
+  }
+
+  /** 给对手起名（辅助模式）：同上，名字决定这份数据是谁的 */
+  function setOpponent(name) {
+    const clean = App.cleanName(name);
+    els.nameInput.value = clean;           // 立即回写：去空白、截断后的结果当场可见
+    if (clean !== state.opponent) {
+      const wasUnnamed = !App.cleanName(App.predictedName());   // 改之前还没名字？
+      state.opponent = clean;
+      afterRename(wasUnnamed);
+    }
+    syncNameSave();                        // 已回写、已换好档：按钮该收就收
   }
 
   function togglePanel(show) {
@@ -648,11 +767,63 @@
 
   initTooltips();
   initOverflowTips();
-  syncModeUI();
-  renderScores();
-  renderHistory();
-  App.syncParamDisabled();
-  rebuildDecayModels();
-  autoTuneStep();
-  startRound();
+
+  /** 全新开局：把界面与模型按空白状态立起来 */
+  function startFresh() {
+    syncModeUI();
+    renderScores();
+    renderHistory();
+    App.syncParamDisabled();
+    rebuildDecayModels();
+    autoTuneStep();
+    startRound();
+  }
+
+  /**
+   * 按存档立起来。
+   * @param activeKey 当前档用哪一份；传 null 表示当前档留空 —— 其余档案照旧装进寄存位，
+   *                  名字框的候选里还能把他们选回来。只有整份存档读不出来时才退回全新开局。
+   */
+  function restore(saved, activeKey) {
+    try {
+      applySave(saved.data, activeKey);
+      App.syncParamDisabled();
+    } catch (e) {
+      console.warn('自动存档读回失败，按新开局处理：', e);
+      startFresh();
+    }
+  }
+
+  /**
+   * 启动时先问一句要不要接着上次玩，上一次的模式、名字与局数都写在问题里。
+   * 两个选项都会把存档装回来（所以名字框候选与其它档案不会丢），区别只在当前档是谁。
+   * @param saved loadAutosave() 的结果；只有 active 是「有名字」的档时才会问到这儿
+   */
+  function askRestore(saved) {
+    const d = saved.data;
+    const key = saved.active;
+    const seg = key && d.profiles[key] ? d.profiles[key] : null;
+    const who = d.mode === 'assist' ? d.opponent : d.user;
+    const bits = [App.MODE_LABEL[d.mode], who || '未起名'];
+    const rounds = seg ? seg.fields.history.length : 0;
+    if (rounds) bits.push(rounds + ' 局');   // 刚起名还没玩过就不提局数
+    els.askText.textContent = '要载入上次的数据吗？（' + bits.join(' · ') + '）';
+    els.askOk.textContent = '载入';
+    els.askOk.className = 'btn primary';     // 「载入」是这里的主操作，给它主色
+    els.askCancel.textContent = '空白开始';
+    els.askExtra.hidden = true;
+    askAction = () => restore(saved, key);
+    askExtraAction = null;
+    askCloseAction = () => restore(saved, null);   // 不接着上次那份：存档照旧装回来，只是当前档留空
+    els.askModal.hidden = false;
+    els.askOk.focus();               // 回车即「载入」
+  }
+
+  // 上次的记录不直接装回来，先问一句。不过上次结束时若那份档案就没名字（active 为 null），
+  // 载入也只是当前档空白，没什么可问的 —— 直接按存档立起来，其余档案仍在名字框候选里。
+  // 老存档没有 active 字段（undefined）时照问：那时只能按「模式 + 名字」去认，不能假定它没名字。
+  const saved = App.loadAutosave();
+  if (!saved) startFresh();
+  else if (saved.active !== null) askRestore(saved);
+  else restore(saved, null);
 })(window);

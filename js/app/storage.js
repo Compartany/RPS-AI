@@ -188,5 +188,5 @@
     } catch (e) { return null; }
   }
 
-  Object.assign(App, { buildSave, parseSave });
+  Object.assign(App, { buildSave, parseSave, autosave, loadAutosave });
 })(window);
