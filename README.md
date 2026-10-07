@@ -174,19 +174,25 @@ NIST 原本要求 ≥ 10⁶ 比特（约 50 万局），而实际对局远少于
 ```json
 {
   "format": "rps-ai-save",
-  "version": 3,
+  "version": 5,
   "order": 3,
-  "mode": "duel",
+  "mode": "assist",
+  "user": "小明",
+  "opponent": "老王",
   "profiles": {
-    "duel":   { "params": { "...": "…" }, "stats": {}, "hit": 0, "hitTries": 0, "ideal": {}, "history": "RPRS", "hitLog": "10" },
-    "assist": null
+    "p:老王": { "params": { "...": "…" }, "stats": {}, "hit": 0, "hitTries": 0, "ideal": {}, "history": "RPRS", "hitLog": "10" },
+    "p:小李": { "...": "…" },
+    "duel":   { "...": "…" },
+    "assist": { "...": "…" }
   }
 }
 ```
 
-- `profiles` 里两种玩法各占一段（`null` = 该玩法还没启用过，导入后回到干净状态）。
-- `history`：每局 2 个字符（我方出招 + 对手出招），如 `RSPRSS` 即 3 局 `✊vs✌️ / ✋vs✊ / ✌️vs✌️`；`hitLog` 每局 1 个字符（`1` / `0`，该局 AI 是否命中被预测者），用于「半衰期加权命中率」。
-- `params`：`alpha / exploreScale / explore / autoTune / confidence / halfLife` —— 两种玩法的滑块与开关各自独立。
+- `profiles` 的键就是**档案键**：`p:名字` = 那个人的数据（两种玩法共用一份）；`duel` / `assist` = 名字留空时，两种玩法各自的默认档。
+- `user` / `opponent`：名字框里当前填的「我」和「对手」。**没填就不写该字段**。
+- `history`：每局 2 个字符（**被预测者**出招 + 对方出招）—— 固定这个顺序，同一份数据在两种玩法下才能直接拼起来学（如 `RSPRSS` 即 3 局 `✊vs✌️ / ✋vs✊ / ✌️vs✌️`）；`hitLog` 每局 1 个字符（`1` / `0`，该局 AI 是否命中被预测者），用于「半衰期加权命中率」。
+- 导入时按 `mode` + 名字打开对应那份；V4 的 `assist#名字` 会被当作 `p:名字` 读进来。
+- `params`：`alpha / exploreScale / explore / autoTune / confidence / halfLife` —— 每份数据的滑块与开关各自独立。
 - **跨版本兼容**：读的时候只认自己认识的字段 —— 缺的用默认值补、多的直接忽略，所以新版存档交给旧版、旧版交给新版都能读（无非丢几个新字段）。
 - **导出**：存成 `名字-日期.rps`（如 `老王-2026-10-07.rps`）。名字取**被预测者**（对战模式是「我」，辅助模式是对手），没起名就只剩日期（`2026-10-07.rps`）。不加前缀、不含模式 —— 扩展名已表明用途，且同一份数据两种玩法通用。
 - **导入**：选该文件即可恢复 —— AI 会按各份数据自己的历史分别回放学习，当前这份连同其余各份的数据与参数一并还原。
