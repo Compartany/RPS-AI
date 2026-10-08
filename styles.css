@@ -1033,19 +1033,6 @@ html::-webkit-scrollbar,
   .layout > .panel-slot > .panel { position: static; }
   .score-item .value { font-size: 24px; }
 }
-@media (max-width: 560px) {
-  .choice { width: 82px; height: 82px; }
-  .choice .glyph { font-size: 42px; }
-  .move-slot { width: 108px; height: 108px; }
-  .move-slot .glyph { font-size: 52px; }
-  .last-cpu { width: 54px; height: 54px; left: calc(100% + 12px); }
-  .last-cpu .glyph { font-size: 32px; }
-  .pick { width: 62px; padding: 7px 3px 6px; }
-  .pick i { font-size: 32px; }
-  .mode-toggle { padding: 6px 9px; }
-  .topbar h1 { letter-spacing: 3px; }
-}
-
 /* ================= 组件补充样式 ================= */
 
 /* ---------- 面板工具条 / 排序分段控件 ---------- */
@@ -1507,6 +1494,88 @@ table.criteria tr.baseline td { font-weight: 600; }
    高屏两模式的 gap 本来就相同，不加任何补偿。 */
 @media (max-height: 1000px) {
   .arena[data-mode="assist"] .result-banner { margin-block: 2px; }
+}
+
+/* ---------- 手机（窄视口） ----------
+   桌面把「存档工具栏」与「模式 / 名字控件」分别悬浮在对战区的左上角与右上角，
+   两者之间靠宽屏的中央留白隔开；窄屏没有这段留白，两组控件会一路挤到中间，
+   最终直接压在称谓行和出招按钮上（手机上表现为整块文字叠在一起）。
+   这里让它们落回文档流、各占一行并居中，并相应收窄左右留白、重排记分板。
+   断点取 640px：只作用于手机竖屏，桌面与平板竖屏（768px）都不受影响。
+
+   必须放在文件末尾：.mode-wrap / .name-box 等基础规则定义在文件后半段，
+   媒体查询与它们特异性相同，只有写在后面才能覆盖掉「悬浮定位」这套桌面排版。 */
+@media (max-width: 640px) {
+  /* 左右各 56px 的留白在手机上要吃掉近三分之一宽度，是内容与悬浮控件相撞的主因 */
+  .layout { padding-left: 12px; padding-right: 12px; gap: 10px; }
+  .game { gap: 10px; }
+
+  /* 记分板由「两列胜率 + 一列记录」改为「两列胜率 + 整行记录」：
+     否则记录区只剩一个字宽，「对局记录」「暂无记录」会逐字竖排 */
+  .scoreboard { grid-template-columns: 1fr 1fr; column-gap: 12px; row-gap: 10px; padding: 12px 14px; }
+  .score-records { grid-column: 1 / -1; align-items: stretch; justify-content: flex-start; }
+  .records { justify-content: flex-start; }
+  .meta-line { gap: 8px 14px; font-size: 12px; }
+
+  /* 对战区：两组悬浮控件落回文档流，各占一行 */
+  .arena { gap: 10px; padding: 12px; }
+  .arena-tools {
+    position: static;
+    width: 100%;
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 4px;
+    padding: 0;
+    background: none;
+    border: 0;
+    opacity: 1;
+  }
+  /* 不再贴着角落悬浮之后，恢复常规按钮的外观（原样式是刻意的透明工具栏）。
+     字号与内边距各收一档：要装下五个按钮（含最长的「NIST 检测」），
+     不收窄的话「展开分析」会被挤到第二行、单占一行。 */
+  .arena-tools .btn {
+    width: auto;
+    padding: 5px 8px;
+    font-size: 11px;
+    letter-spacing: 0;
+    border-color: var(--line);
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text);
+  }
+  .arena-tools .btn.primary { margin-top: 0; }
+  .mode-wrap { position: static; width: 100%; justify-content: center; }
+  /* 独占一行后左右宽松，名字框可以放宽 */
+  .name-box > input { width: 130px; }
+
+  /* 出招按钮 / 图案：沿用窄屏一档 */
+  .choice { width: 82px; height: 82px; }
+  .choice .glyph { font-size: 42px; }
+  .move-slot { width: 108px; height: 108px; }
+  .move-slot .glyph { font-size: 52px; }
+  .last-cpu { width: 54px; height: 54px; left: calc(100% + 12px); }
+  .last-cpu .glyph { font-size: 32px; }
+  .pick { width: 62px; padding: 7px 3px 6px; }
+  .pick i { font-size: 32px; }
+
+  /* 分析面板 / 参数栏：三列网格相应收窄，避免数据列被挤成一行一个字 */
+  .panel { padding: 12px 12px 14px; }
+  .params { padding: 12px 14px 14px; }
+  .fc-row { grid-template-columns: 64px 1fr 40px; }
+  .param-row { grid-template-columns: 76px 1fr 44px; }
+  .cmp-row { grid-template-columns: 44px 1fr 36px; }
+
+  /* 弹窗：四周留白收窄，NIST 表格改为横向滚动，而不是把每一列都挤扁 */
+  .modal { padding: 12px; }
+  .modal-body { padding: 14px 14px 18px; }
+  .nist-table { min-width: 540px; }
+
+  .topbar h1 { letter-spacing: 3px; }
+  .tagline { font-size: 12px; }
+
+  /* 提示统一改用 body 级浮层（见 main.js 的 initOverflowTips）：
+     伪元素版把提示框挂在目标元素上向左/向右展开，窄屏必然有一侧顶出屏幕。 */
+  [data-tip]:hover::after { display: none; }
 }
 
 

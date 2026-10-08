@@ -870,6 +870,7 @@
   /**
    * 策略参数栏是 overflow:auto 的滚动容器，栏内提示若用 CSS 伪元素会被容器裁掉
    * （长文案直接切边）。这里改用 body 级 fixed 浮层：位置按目标元素算，并夹在视口内。
+   * 窄视口（手机）下横向空间不足，伪元素提示挂在哪一侧都会顶出屏幕，故也一并改走浮层。
    */
   function initOverflowTips() {
     const layer = document.createElement('div');
@@ -902,8 +903,14 @@
       layer.hidden = true;
     }
 
+    /**
+     * 需要走浮层的范围：桌面只有参数栏（滚动容器会裁掉伪元素提示）；
+     * 手机（窄视口）下所有提示都走浮层，由 show() 把位置夹在视口内。
+     */
+    const tipSel = () => (window.matchMedia('(max-width: 640px)').matches ? '[data-tip]' : '#params [data-tip]');
+
     document.addEventListener('mouseover', (ev) => {
-      const el = ev.target.closest ? ev.target.closest('#params [data-tip]') : null;
+      const el = ev.target.closest ? ev.target.closest(tipSel()) : null;
       if (!el) { if (current) hide(); return; }
       if (el === current) return;
       current = el;
@@ -913,7 +920,7 @@
       if (!current) return;
       // 目标内部子元素之间移动不算离开
       if (ev.relatedTarget && current.contains(ev.relatedTarget)) return;
-      const el = ev.target.closest ? ev.target.closest('#params [data-tip]') : null;
+      const el = ev.target.closest ? ev.target.closest(tipSel()) : null;
       if (el !== current) return;
       hide();
     });
