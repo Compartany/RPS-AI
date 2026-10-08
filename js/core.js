@@ -8,9 +8,10 @@
 
   /* ------------------------------ 招式 ------------------------------ */
 
-  const MOVES = ['R', 'P', 'S'];
+  /* 顺序即界面顺序（石头 → 剪刀 → 布）：凡是遍历 MOVES 的地方都按这个次序展示 */
+  const MOVES = ['R', 'S', 'P'];
   const NAMES = { R: '石头', P: '布', S: '剪刀' };
-  const EMOJI = { R: '✊', P: '✋', S: '✌️' };
+  const EMOJI = { R: '✊', P: '✋', S: '✌️' };   // 界面与日志都用 emoji 字符，字形由 assets/noto-subset.css 的字体决定
   const COUNTER = { R: 'P', P: 'S', S: 'R' };  // COUNTER[x] = 能击败 x 的招
   const VICTIM = { R: 'S', P: 'R', S: 'P' };   // VICTIM[x] = 被 x 击败的招
 

@@ -36,7 +36,11 @@ body {
   flex-direction: column;
   background: var(--bg);
   color: var(--text);
-  font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  /* 出招图案是 emoji 字符（✊ / ✋ / ✌️），字形由字体决定 —— 各平台系统 emoji
+     字体不同，手机与电脑会看到不同图案。首位放项目自带的 Noto 子集
+     （assets/noto-subset.css，OFL 1.1，只含这三个图案、base64 内嵌）：离线也一致，
+     取不到时回退后面的系统 emoji 字体。它只覆盖 emoji 码位，不影响中文西文。 */
+  font-family: 'NotoEmojiSub', "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   overflow-x: hidden;
   overflow-y: hidden;   /* 页面本身不出滚动条：纵向空间由各栏自己支配 */
@@ -357,6 +361,23 @@ body {
 .last-cpu.show { opacity: 1; transform: translateY(-50%) scale(1); }
 .last-cpu .glyph { font-size: 40px; line-height: 1; }
 
+/* ---------- 出招图案的视觉校正 ----------
+   1) 大小与「根部」对齐：✊ 是实心圆块（填充度 0.78，墨迹面积比另两颗大五成），同字号下
+      显得更重，故缩小一成（scale 0.9）。缩小会把墨迹底边上提，再按 ✋ 的底边为基准下移
+      补回（0.061em）；✌️ 的底边本就比 ✋ 低 0.02em，一并上提 —— 三颗的根部因而落在
+      同一水平线上。
+   2) 水平居中：✊ / ✋ / ✌️ 的字形在 em 框里并非正好居中。实测各字符墨迹的质量中位相对
+      em 框中心的偏差：✊ / ✌️ 都在 0.01em 以内，可忽略；只有 ✋ 偏左约 0.04em，需要挪回
+      正中。（✋ 不能按墨迹包围盒居中 —— 右下方伸出的拇指会把包围盒撑宽，使手掌看起来
+      偏左；按质量中位——即墨迹面积的一半处——对齐，才与视觉中心一致。）
+   数值用 em / 倍率表达以随字号等比缩放；更换字体子集后需重测。 */
+[data-move="R"] :is(.glyph, i),
+.glyph[data-move="R"] { transform: translate(0, 0.061em) scale(0.9); }
+[data-move="S"] :is(.glyph, i),
+.glyph[data-move="S"] { transform: translate(0, -0.02em); }
+[data-move="P"] :is(.glyph, i),
+.glyph[data-move="P"] { transform: translate(0.04em, 0); }
+
 /* 胜负角标：我方出招按钮 / 对手补录按钮共用一套 */
 .choice .badge,
 .pick .badge {
@@ -436,18 +457,6 @@ body {
 }
 .choice:active { transform: scale(0.97); }
 
-/* ---------- emoji 视觉居中修正（按质心对齐） ----------
-   flex/grid 居中的是 emoji 的「字框」，而人眼对齐的是图形自身的「重心」。
-   下面的位移由 canvas 实测得出：先算不透明像素的 alpha 加权质心，再与字框中心求差（以 1em 为基准）。
-   三个图案的重心各自不同（✊ 偏下最多，✋/✌️ 还被斜向的手势拉偏了水平重心）。 */
-.choice[data-move="R"] .glyph, .pick[data-move="R"] i, .glyph[data-move="R"] { transform: translate(-0.008em, -0.129em); }
-.choice[data-move="P"] .glyph, .pick[data-move="P"] i, .glyph[data-move="P"] { transform: translate(0.071em, -0.055em); }
-.choice[data-move="S"] .glyph, .pick[data-move="S"] i, .glyph[data-move="S"] { transform: translate(-0.031em, -0.067em); }
-/* 补录按钮小得多（字号 ~25px），小字号下字形渲染偏移与大按钮不同（hinting 差异），
-   实测偏上约 6%，这里单独校准 —— 放在后面覆盖上面的通用值。 */
-.pick[data-move="R"] i { transform: translate(-0.008em, -0.019em); }
-.pick[data-move="P"] i { transform: translate(0.071em, 0.055em); }
-.pick[data-move="S"] i { transform: translate(-0.031em, 0.043em); }
 /* 我方本轮出的那一招：略放大 + 绿色发光（対战模式就到这里，不上炫技） */
 .choice.picked {
   transform: scale(1.04);
@@ -1355,6 +1364,8 @@ table.criteria tr.baseline td { font-weight: 600; }
   padding: 0;
   cursor: pointer;
   color: var(--text-strong);
+  /* button 默认不继承字体，不写这行里面的 emoji 会退回系统 emoji 字体（与其它图案不一致） */
+  font-family: inherit;
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 14px;
@@ -1455,11 +1466,7 @@ table.criteria tr.baseline td { font-weight: 600; }
 .arena[data-mode="assist"] .pick i { font-size: clamp(44px, 6.2vh, 70px); }
 /* 收益值贴在按钮内底部，图案就不能满到探底：减约 6%，换来「图案绝对居中 + 收益不压图案」 */
 .arena[data-mode="assist"] .choices .choice .glyph { font-size: clamp(41px, 5.8vh, 66px); }
-/* 补录按钮放大到与大按钮同级后，不能直接沿用 .choice 那套位移：那套是按「图案 + 下方收益文字」
-   的整体观感校的，而这里按钮里只有图案。下面三个值由像素实测（墨迹 bbox 中心 - 按钮中心）重新标定。 */
-.arena[data-mode="assist"] .pick[data-move="R"] i { transform: translate(-0.008em, -0.056em); }
-.arena[data-mode="assist"] .pick[data-move="P"] i { transform: translate(-0.002em, 0.025em); }
-.arena[data-mode="assist"] .pick[data-move="S"] i { transform: translate(0.010em, 0.006em); }
+/* 补录按钮放大到与大按钮同级后，图案字号跟着提到同档（图案本身居中，不需要再单独校准） */
 /* 每颗按钮下方的「理论收益」：按 AI 对对手出招的预测算期望（胜 - 负） */
 .choice .ev {
   position: absolute;

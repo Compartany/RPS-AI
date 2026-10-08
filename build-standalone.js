@@ -54,9 +54,14 @@ function escapeScript(js) {
 
 /** 只允许相对路径：绝对 URL / 协议相对 URL 内联不了 */
 function assertLocal(rel, kind) {
-  if (/^[a-z][a-z0-9+.-]*:/i.test(rel) || rel.startsWith('//')) {
+  if (isExternal(rel)) {
     die('index.html 里的' + kind + '不是相对路径，无法内联：' + rel);
   }
+}
+
+/** 绝对 URL / 协议相对 URL（如 CDN 字体），这类外链不内联、原样留在产物里 */
+function isExternal(rel) {
+  return /^[a-z][a-z0-9+.-]*:/i.test(rel) || rel.startsWith('//');
 }
 
 function main() {
@@ -67,7 +72,11 @@ function main() {
   let html = rawHtml.replace(/\r\n/g, '\n');
 
   // ---- 1. 先数清楚源文件引用了几个 ----
-  const wantStyles = (html.match(RE_LINK) || []).length;
+  const localLinks = (html.match(RE_LINK) || []).filter((tag) => {
+    const m = tag.match(/\bhref\s*=\s*["']([^"']+)["']/i);
+    return m && !isExternal(m[1]);
+  });
+  const wantStyles = localLinks.length;
   const wantScripts = (html.match(RE_SCRIPT) || []).length;
   if (!wantStyles) die('index.html 里没找到 <link rel="stylesheet">，构建脚本已与源文件脱节。');
   if (!wantScripts) die('index.html 里没找到带 src 的 <script>，构建脚本已与源文件脱节。');
@@ -75,11 +84,11 @@ function main() {
   const styles = [];
   const scripts = [];
 
-  // ---- 2. 就地内联样式表 ----
+  // ---- 2. 就地内联样式表（CDN 等绝对 URL 原样留着） ----
   html = html.replace(RE_LINK, (tag) => {
     const m = tag.match(/\bhref\s*=\s*["']([^"']+)["']/i);
     if (!m) die('有个 <link rel="stylesheet"> 没有 href：' + tag.trim());
-    assertLocal(m[1], '样式表');
+    if (isExternal(m[1])) return tag;
     styles.push(m[1]);
     // <style> 元素内的 @charset 按规范无效，剥掉（编码已由 HTML 的 <meta charset> 声明）
     const css = readRel(m[1]).replace(/^\s*@charset\s+["'][^"']*["']\s*;\n?/i, '');
@@ -96,10 +105,10 @@ function main() {
     return '<script>\n' + escapeScript(readRel(src)) + '\n</script>\n';
   });
 
-  // ---- 4. 校验：数量对得上、且产物里不再有外部引用 ----
+  // ---- 4. 校验：数量对得上、且产物里不再有本地外链 ----
   if (styles.length !== wantStyles) die('样式表内联数量不符：源 ' + wantStyles + ' 个，实际内联 ' + styles.length + ' 个。');
   if (scripts.length !== wantScripts) die('脚本内联数量不符：源 ' + wantScripts + ' 个，实际内联 ' + scripts.length + ' 个。');
-  if (/<link\b[^>]*\brel=["']?stylesheet/i.test(html)) die('产物里仍残留外链样式表。');
+  if (html.split('<style>').length - 1 !== styles.length) die('产物里 <style> 数量与内联样式表数量不符。');
   if (/<script\b[^>]*\bsrc=/i.test(html)) die('产物里仍残留外链脚本。');
 
   // ---- 5. 写盘（行尾还原成源 index.html 的风格） ----

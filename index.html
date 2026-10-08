@@ -7,6 +7,12 @@
 <meta name="theme-color" content="#151f40" />
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23151f40'/%3E%3Ccircle cx='17' cy='32' r='7' fill='%23ff6b81'/%3E%3Ccircle cx='32' cy='32' r='7' fill='%2337d6a3'/%3E%3Ccircle cx='47' cy='32' r='7' fill='%237b6cff'/%3E%3C/svg%3E" />
 <link rel="stylesheet" href="styles.css" />
+<!--
+  出招图案字体：Noto Color Emoji 子集（Google，OFL 1.1，© Google Inc.）。
+  只含 ✊ U+270A / ✌️ U+270C+FE0F / ✋ U+270B 三个图案，字体 3.5 KB，以 base64 内嵌 ——
+  离线可用，手机与电脑看到的是同一套图案。
+-->
+<link rel="stylesheet" href="assets/noto-subset.css" />
 </head>
 <body>
 <div class="aurora" aria-hidden="true">
@@ -90,8 +96,8 @@
         <div class="pick-row" id="cpuPick" hidden>
           <span class="pick-label" id="oppPickLabel">电脑出了</span>
           <button class="pick" data-move="R" type="button" aria-label="石头"><i>✊</i><span class="badge"></span></button>
-          <button class="pick" data-move="P" type="button" aria-label="布"><i>✋</i><span class="badge"></span></button>
           <button class="pick" data-move="S" type="button" aria-label="剪刀"><i>✌️</i><span class="badge"></span></button>
+          <button class="pick" data-move="P" type="button" aria-label="布"><i>✋</i><span class="badge"></span></button>
         </div>
       </div>
 
@@ -108,13 +114,13 @@
             <span class="ev"></span>
             <span class="badge"></span>
           </button>
-          <button class="choice" data-move="P" type="button" aria-label="布">
-            <span class="glyph">✋</span>
+          <button class="choice" data-move="S" type="button" aria-label="剪刀">
+            <span class="glyph">✌️</span>
             <span class="ev"></span>
             <span class="badge"></span>
           </button>
-          <button class="choice" data-move="S" type="button" aria-label="剪刀">
-            <span class="glyph">✌️</span>
+          <button class="choice" data-move="P" type="button" aria-label="布">
+            <span class="glyph">✋</span>
             <span class="ev"></span>
             <span class="badge"></span>
           </button>

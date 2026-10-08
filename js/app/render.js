@@ -392,7 +392,7 @@
         }
         const countsTitle = isRel
           ? tx('在「当前依据」所示的局面下，历史上人类各关系（胜/负/平）出现的次数')
-          : tx('在「当前依据」所示的局面下，历史上人类各招（✊/✋/✌）出现的次数');
+          : tx(`在「当前依据」所示的局面下，历史上人类各招（${MOVES.map((m) => EMOJI[m]).join('/')}）出现的次数`);
         const keyText =
           item.key === 'ALL'
             ? '全部历史'
@@ -618,7 +618,7 @@
           <span class="rand-name">最大可预测优势</span>
           <span class="rand-val">${bestText}</span>
         </div>
-        <div class="rand-row" title="${tx('人类全部对局里 ✊ / ✋ / ✌ 各自的出现比例（仅作直观参考）。')}">
+        <div class="rand-row" title="${tx(`人类全部对局里 ${MOVES.map((m) => EMOJI[m]).join(' / ')} 各自的出现比例（仅作直观参考）。`)}">
           <span class="rand-name">出招分布</span>
           <span class="rand-val dist">${MOVES.map((m) => `<b>${EMOJI[m]} ${((r.cnt[m] / r.total) * 100).toFixed(0)}%</b>`).join('')}</span>
         </div>
