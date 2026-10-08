@@ -36,7 +36,15 @@
     const seg = (key) => {
       const p = App.profileOf(key);
       if (!p) return null;                     // 该档案没启用过：不留段
-      const f = p.fields;
+      // 存档统一按「被预测者在先」写：寄存位里的档案本来就是这个口径，但当前档拿到的
+      // 是现场 —— 辅助模式的现场是「我方在先」，得翻一份副本再写（与 takeProfile 读回时
+      // 的翻动对称，否则导出与导入对不上，两列会互换）。
+      let f = p.fields;
+      if (key === state.key && App.isAssist()) {
+        f = {};
+        for (const k of App.PROFILE_FIELDS) f[k] = state[k];
+        App.flipFields(f);
+      }
       const pr = p.params;
       return {
         params: {

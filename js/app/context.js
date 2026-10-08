@@ -433,7 +433,7 @@
     // 参数
     readOptions, readParams, writeParams, syncParamDisabled, newPredictor, DEFAULT_PARAMS,
     // 档案
-    emptyProfile, setProfileIntoState, profileOf, parkProfile, takeProfile,
+    emptyProfile, setProfileIntoState, profileOf, parkProfile, takeProfile, flipFields,
     // 模型
     rebuildDecayModels, syncDecayModels,
   };
