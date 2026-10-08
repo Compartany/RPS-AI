@@ -14,6 +14,13 @@
     autoTuneStep, syncPredictTrust, newPredictor, rebuildDecayModels,
   } = App;
 
+  /**
+   * 结算后揭示的停留时长（ms），到期自动开下一局。
+   * 对战模式留到揭示动画（0.42s）播完、再看清电脑出了什么与本局输赢；辅助模式下对手的招是自己
+   * 刚补录的、本局胜负也已知，玩家真正想看的是下一局建议，故不停留，补录完直接进下一局。
+   */
+  const REVEAL_MS = { duel: 500, assist: 0 };
+
   /* ============================== 出招日志（证明电脑没作弊） ============================== */
 
   /** 电脑选定出招时（你尚未出招）打印一条结构化日志：彩色标签 + 可展开的详情对象 */
@@ -207,7 +214,7 @@
 
     setTimeout(() => {
       if (state.revealed) startRound();
-    }, 850);
+    }, isAssist() ? REVEAL_MS.assist : REVEAL_MS.duel);
   }
 
   function resetAll() {
