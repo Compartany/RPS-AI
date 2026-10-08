@@ -336,6 +336,7 @@
           ? `<div class="fc-ev" data-tip="${tx('每招的期望收益 = 该招击败人类的概率 − 该招被人类击败的概率，取最大者出招。')}"><span class="fc-ev-head">期望收益</span><div class="fc-ev-chips">${evRows}</div></div>`
           : `<div class="fc-alert">${tx('所有标准的应验率都没超过随机基准 33%，AI 暂无可信依据，本局只能随机出招。')}</div>`}
         <div class="fc-target" data-tip="${targetTip}">${targetLine}${noData ? '' : `，期望收益 <b>${bv >= 0 ? '+' : ''}${bv.toFixed(2)}</b>`}</div>
+        ${state.pending.surge ? `<div class="fc-surge" data-tip="${tx('对方此前几乎不出这一招，最近却密集出现，于是 AI 临时把它的概率调高。它只影响本局预测，不改动长期统计。')}">${tx('检测到突变')}：最近 ${state.pending.surge.window} 局出现 ${state.pending.surge.count} 次 ${EMOJI[state.pending.surge.move]} ${NAMES[state.pending.surge.move]}</div>` : ''}
         ${assist ? '' : `<div class="fc-note" data-tip="${epsTip}">${noData ? '' : `本局随机出招概率 ${(epsilon * 100).toFixed(1)}%`}</div>`}
       `;
     }
@@ -457,7 +458,7 @@
       App.Z_CANDIDATES.map((zz, i) => cmpRow(String(zz), t ? t[i].rate : null, Math.abs(zz - cur) < 1e-9)).join('');
 
     if (els.hlCompare) {
-      const dwin = state.decayShadow.slice(-App.Z_WINDOW);
+      const dwin = state.decayShadow.slice(-App.HL.window);
       const dt = state.decayRateTable;
       const curHl = Number(els.hlInput.value) || 0;
       els.hlCompare.innerHTML = cmpTitle('记忆半衰期命中率', dwin.length, tx('预测命中率 = 该档位对下一招的预测命中人类实际出招的比例（各档位按自身半衰期加权）')) +

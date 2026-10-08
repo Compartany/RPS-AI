@@ -584,6 +584,8 @@ body {
 .fc-note { margin-top: 4px; font-size: 11px; line-height: 1.45; min-height: 1.45em; color: var(--muted); }
 
 .fc-alert { margin-top: 6px; padding: 6px 10px; border-radius: 10px; font-size: 12px; line-height: 1.5; color: var(--gold-soft); background: rgba(255, 176, 32, 0.12); border: 1px solid rgba(255, 176, 32, 0.28); }
+/* 突变提示：不是警报，只是一条「本局预测为何变了」的说明，所以用主题色而不是金色 */
+.fc-surge { margin-top: 6px; padding: 5px 10px; border-radius: 10px; font-size: 12px; line-height: 1.5; color: var(--accent-soft); background: rgba(123, 108, 255, 0.14); border: 1px solid rgba(123, 108, 255, 0.3); }
 .conf-compare { margin-top: clamp(11px, 1.9vh, 18px); }
 .cmp-title { font-size: 11.5px; color: var(--text-3); letter-spacing: 0.5px; margin-bottom: clamp(2px, 0.6vh, 5px); }
 .cmp-sub { color: var(--faint); margin-left: 6px; }

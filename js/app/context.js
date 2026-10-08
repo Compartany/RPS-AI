@@ -23,6 +23,9 @@
   const Z_CANDIDATES = [0, 0.5, 1, 1.5, 2];
   const Z_WINDOW = 40;
   const Z_MIN_SAMPLES = 12;
+  // 记忆档位的择优口径：窗口比 Z_WINDOW 短、门槛比默认的换档门槛低 ——
+  // 对手一改招，长记忆要十几局才缓得过来，短记忆则立刻显出优势，换档必须跟得上变招。
+  const HL = { window: 20, margin: 0.015 };
   // 记忆衰减档位（半衰期，局），取 2 的幂便于按对数均匀覆盖，只保留会遗忘的档位
   // （不含「不遗忘」：永久等权记忆会让很久以前的老习惯一直拖着新数据，无法适应打法变化）
   const DECAY_TIERS = [64, 32, 16, 8];
@@ -416,7 +419,7 @@
 
   const app = {
     // 常量
-    ORDER, ROUND_GAP_MS, MODE_LABEL, Z_CANDIDATES, Z_WINDOW, Z_MIN_SAMPLES, DECAY_TIERS, EXPLORE_TIERS,
+    ORDER, ROUND_GAP_MS, MODE_LABEL, Z_CANDIDATES, Z_WINDOW, Z_MIN_SAMPLES, HL, DECAY_TIERS, EXPLORE_TIERS,
     SAVE_FORMAT, SAVE_VERSION, PROFILE_FIELDS,
     // DOM 与状态
     $, els, state, parked,

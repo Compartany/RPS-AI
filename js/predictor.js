@@ -22,6 +22,18 @@
     accShrink: 4,                                  // 全局应验率的收缩强度
   };
 
+  // 突变检测：某招在长期统计里几乎不出现、最近几局却密集出现时，把预测分布朝「最近这几局」
+  // 靠一次。统计型模型对「历史为零的招突然连出」反应最慢 —— 拉普拉斯平滑下它得从零慢慢爬，
+  // 记忆半衰期越长爬得越慢（对手前 34 局一次石头没出，之后连出三个，模型给石头的概率仍不足 0.1）。
+  // 这一步只是临时修正：强度完全由「最近 window 局」决定，窗口一滑过去就自动复原，不改任何长期计数。
+  const SURGE = {
+    window: 5,        // 观察最近多少局
+    minCount: 3,      // 突变招在窗口里至少出现几次
+    rareShare: 0.12,  // 该招长期占比低于此值才算「历史几乎没出过」（也是挡住随机对手误触发的闸门）
+    maxLambda: 0.5,   // 向近期窗口混合的最大比例
+    minHistory: 12,   // 历史不足这么多局不做（前期本来就有开局随机度兜底）
+  };
+
   /**
    * 单个「标准」（专家）。
    * source = 'freq' 整体频率 | 'self' 人类自身前 N 招 | 'opp' 对电脑前 N 招 | 'random' 随机基线
@@ -250,6 +262,42 @@
       }
     }
 
+    /**
+     * 突变检测：窗口内某招密集出现、而它在全部历史里几乎没出现过，就返回一份「向近期窗口靠拢」
+     * 的修正量（{ lambda, dist, move, count, window }），否则返回 null。
+     * 两个条件缺一不可 —— 只看「最近出现得勤」而不看长期占比的话，随机对手每隔几局就会误触发一次。
+     */
+    surgeProfile(history) {
+      const W = SURGE.window;
+      const len = history.length;
+      if (len < SURGE.minHistory || len < W) return null;
+
+      const wc = { R: 0, P: 0, S: 0 };
+      for (let i = len - W; i < len; i++) wc[history[i].human]++;
+      const all = { R: 0, P: 0, S: 0 };
+      for (let i = 0; i < len; i++) all[history[i].human]++;
+      const total = all.R + all.P + all.S;
+      if (!total) return null;
+
+      let best = null;
+      for (const m of MOVES) {
+        if (wc[m] < SURGE.minCount) continue;                 // 最近没怎么出现
+        if (all[m] / total >= SURGE.rareShare) continue;       // 历史上并不罕见（模型自己学得到，不必插手）
+        const raw = (wc[m] / W - 1 / 3) / (1 - 1 / 3);        // 窗口占比越过随机基准多少
+        if (raw <= 0) continue;
+        if (!best || raw > best.raw) best = { move: m, raw };
+      }
+      if (!best) return null;
+
+      return {
+        lambda: Math.min(SURGE.maxLambda, best.raw),
+        dist: laplace(wc, Math.max(0.2, Number(this.options.alpha) || 0.5)),
+        move: best.move,
+        count: wc[best.move],
+        window: W,
+      };
+    }
+
     /** 汇总各标准的破绽明细与合成权重（decide 的第一阶段） */
     tally(history, zOpt) {
       const breakdown = [];
@@ -366,6 +414,11 @@
       // 1) 各标准合成 → 预测分布与期望收益
       const { breakdown, acc, weightSum } = this.tally(history, zOpt);
       const meta = normalize(acc, weightSum);
+      // 突变检测：猜测分布先向「最近这几局」靠一靠（详见 SURGE 的说明）
+      const surge = this.surgeProfile(history);
+      if (surge) {
+        for (const m of MOVES) meta[m] = (1 - surge.lambda) * meta[m] + surge.lambda * surge.dist[m];
+      }
       const scores = expectedScores(meta);
       assignShares(breakdown, weightSum);
 
@@ -401,6 +454,7 @@
         avgAcc: weightedAccuracy(breakdown),
         weightSum,                              // 归一化前总权重（0 = 没有任何可信标准）
         scores,                                 // 三招各自的期望收益（赢−输）
+        surge,                                  // 本次预测是否触发了突变修正（null = 未触发）
       };
     }
   }

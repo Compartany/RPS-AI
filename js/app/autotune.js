@@ -97,7 +97,7 @@
   /* ============================== 档位择优 ============================== */
 
   const ALPHA = { base: 1.6, slope: 0.01, lo: 0.3, hi: 1.5 };  // α = base − 局数 × slope，夹在 [lo, hi]
-  const TIER_MARGIN = 0.03;                                     // 档位升级门槛（命中率高出的百分点）
+  const TIER_MARGIN = 0.03;                                     // 样本收缩档位的升级门槛（命中率高出的百分点）
 
   /**
    * 探索强度：上限由「按最优出招的胜率是否显著低于 1/3」决定。
@@ -155,16 +155,17 @@
   /**
    * 记忆衰减：各半衰期档位比较「预测命中率」，且各自按自己的半衰期加权
    * （短记忆只看近期表现）。返回半衰期是否发生变化（调用方据此决定要不要重放历史）。
+   * 只用最近 App.HL.window 局来比 —— 用长窗口的话，对手改招之后要等很久才轮得到短记忆上场。
    */
   function tuneHalfLife() {
     let hl = Number(els.hlInput.value);
-    const dwin = state.decayShadow.slice(-App.Z_WINDOW);
+    const dwin = state.decayShadow.slice(-App.HL.window);
     if (dwin.length) {
       const rates = App.DECAY_TIERS.map((v, i) => weightedMean(dwin.map((r) => r[i]), v));
       state.decayRateTable = App.DECAY_TIERS.map((v, i) => ({ hl: v, rate: rates[i] }));
 
       if (dwin.length >= App.Z_MIN_SAMPLES) {
-        const best = bestTierByRate(rates, TIER_MARGIN);
+        const best = bestTierByRate(rates, App.HL.margin);
         hl = App.DECAY_TIERS[stepToward(nearestTier(App.DECAY_TIERS, hl), best)];
       }
     } else {
