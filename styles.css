@@ -44,6 +44,22 @@ body {
   -webkit-font-smoothing: antialiased;
   overflow-x: hidden;
   overflow-y: hidden;   /* 页面本身不出滚动条：纵向空间由各栏自己支配 */
+  /* 界面全部由按钮构成，无需选中文本：长按 / 拖动一律不产生选区，
+     移动端因此不弹「复制 / 全选」菜单，桌面端也不会拖出蓝色选区。
+     -webkit-touch-callout 关 iOS 长按菜单，-webkit-tap-highlight-color 关点击高亮。
+     输入框例外，见下。 */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* 名字输入框仍需正常选中与编辑 */
+input[type="text"],
+input[type="search"],
+textarea {
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 /* ---------- 背景光晕 ---------- */
