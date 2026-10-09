@@ -7,8 +7,8 @@
   'use strict';
 
   const {
-    MOVES, COUNTER, VICTIM,
-    relation, sum, clamp, shrink, laplace, uniform,
+    MOVES, RELS, COUNTER, VICTIM,
+    relation, relMove, sum, clamp, shrink, laplace, uniform,
     randInt, randFloat, argmaxProbs, bestMoves, sampleProbs,
   } = global.RPS;
 
@@ -44,7 +44,7 @@
       this.order = order;
       this.mode = mode || 'moves';   // 'moves' 出招序列 | 'result' 胜负关系序列
       this.baseline = source === 'random'; // 随机基线：不学习，命中率恒为 1/3
-      this.buckets = new Map();      // key -> { R, P, S }
+      this.buckets = new Map();      // key -> 出招桶 { R, P, S }；result 模式则为关系桶 { win, lose, draw }
       this.hits = 0;                 // 该标准预测命中的次数
       this.tries = 0;                // 该标准参与评估的次数
     }
@@ -67,7 +67,7 @@
           : `人类自己最近连续 ${this.order} 招的出招序列`;
       }
       return this.mode === 'result'
-        ? `人类最近 ${this.order} 招相对电脑相应招的胜负关系`
+        ? `人类最近 ${this.order} 招相对电脑上一招的胜负关系`
         : `电脑最近连续 ${this.order} 招之后人类的应对`;
     }
 
@@ -87,21 +87,15 @@
       const seg = history[len - 1].seg;     // 当前段
 
       if (this.mode === 'result') {
-        // 胜负关系序列
-        if (this.source === 'self') {
-          if (len < this.order + 1) return null;
-          if (history[len - this.order - 1].seg !== seg) return null;
-          const seq = [];
-          for (let i = len - this.order; i < len; i++) {
-            seq.push(relation(history[i].human, history[i - 1].human));
-          }
-          return seq.join('>');
-        }
-        if (len < this.order) return null;
-        if (history[len - this.order].seg !== seg) return null;
+        // 胜负关系序列：self 相对人类自己上一招，opp 相对电脑上一招。
+        // 参照的都是「上一局已出过的招」，所以预测出的关系能唯一换算出人类招式。
+        if (len < this.order + 1) return null;
+        if (history[len - this.order - 1].seg !== seg) return null;
+        const self = this.source === 'self';
         const seq = [];
         for (let i = len - this.order; i < len; i++) {
-          seq.push(relation(history[i].human, history[i].cpu));
+          const prev = history[i - 1];
+          seq.push(relation(history[i].human, self ? prev.human : prev.cpu));
         }
         return seq.join('>');
       }
@@ -116,10 +110,22 @@
       return seq.join('>');
     }
 
+    /**
+     * 关系桶的参照招：被预测的第 i 局，其胜负关系是相对「谁上一局出的什么」。
+     * self → 人类自己上一招；opp → 电脑上一招。预测下一局时 i = history.length，
+     * 二者都是已经出过的招，因此关系能唯一换算出人类下一招。
+     */
+    refFor(history, i) {
+      const prev = history[i - 1];
+      return this.source === 'self' ? prev.human : prev.cpu;
+    }
+
     bucket(key) {
       let b = this.buckets.get(key);
       if (!b) {
-        b = { R: 0, P: 0, S: 0 };
+        b = this.mode === 'result'
+          ? { win: 0, lose: 0, draw: 0 }
+          : { R: 0, P: 0, S: 0 };
         this.buckets.set(key, b);
       }
       return b;
@@ -142,6 +148,31 @@
   }
 
   /* ------------------------------ 合成与决策辅助 ------------------------------ */
+
+  /** 桶内计数合计：出招桶数三招，关系桶数三种关系 */
+  const bucketSum = (b, mode) =>
+    mode === 'result' ? b.win + b.lose + b.draw : sum(b);
+
+  /** 关系计数 → 关系概率（拉普拉斯平滑） */
+  function laplaceRel(counts, alpha) {
+    const total = counts.win + counts.lose + counts.draw;
+    const out = {};
+    for (const r of RELS) out[r] = (counts[r] + alpha) / (total + 3 * alpha);
+    return out;
+  }
+
+  /**
+   * 关系计数 → 人类出招概率分布。
+   * 参照招已知时「平 = 照抄参照招、胜 = 克制它、负 = 被它克制」与招式一一对应，
+   * 所以关系分布能唯一摊回三招上，再进入原来的加权合成流程。
+   */
+  function expandRel(counts, alpha, refMove) {
+    const rel = laplaceRel(counts, alpha);
+    const out = {};
+    for (const m of MOVES) out[m] = 0;
+    for (const r of RELS) out[relMove(r, refMove)] += rel[r];
+    return out;
+  }
 
   /** 把累加权重归一化为概率分布（无任何可信标准时退回均匀） */
   function normalize(acc, weightSum) {
@@ -242,23 +273,30 @@
       // 时间衰减：每局旧计数乘一次 decay，半衰期 hl 局后权重减半
       const hl = Number(this.options.halfLife) || 16;
       const decay = Math.pow(0.5, 1 / hl);
+      const n = end == null ? history.length : end;   // 已见局数（本局为第 n 局）
       for (const e of this.experts) {
         if (e.baseline) continue;   // 随机基线不参与学习
         const key = e.keyFor(history, end);
         if (key === null) continue;
         const b = e.bucket(key);
-        const known = sum(b);
-        if (known >= 1) {
-          const pred = argmaxProbs(laplace(b, this.options.alpha));
+        const isRel = e.mode === 'result';
+        // 本局是第 n 局：键用「前 n 局」拼出，被预测的正是这一局，参照招即第 n-1 局出的招
+        const ref = isRel ? e.refFor(history, n) : null;
+        if (bucketSum(b, e.mode) >= 1) {
+          // 先以旧计数评估预测是否应验（关系桶同样摊成招式分布后再取最大），再累加新计数
+          const probs = isRel
+            ? expandRel(b, this.options.alpha, ref)
+            : laplace(b, this.options.alpha);
+          const pred = argmaxProbs(probs);
           e.tries = e.tries * decay + 1;
           e.hits = e.hits * decay + (pred === humanMove ? 1 : 0);
         }
         if (decay < 1) {
-          b.R *= decay;
-          b.P *= decay;
-          b.S *= decay;
+          for (const k in b) b[k] *= decay;
         }
-        b[humanMove]++;
+        // 关系桶记「本招相对参照招的关系」，出招桶记本招本身
+        if (isRel) b[relation(humanMove, ref)]++;
+        else b[humanMove]++;
       }
     }
 
@@ -327,13 +365,18 @@
           continue;
         }
         const b = e.peek(key);
-        const n = b ? sum(b) : 0;
+        const n = b ? bucketSum(b, e.mode) : 0;
         if (!b || n === 0) {
           breakdown.push({ expert: e, matched: false, key });
           continue;
         }
 
-        const probs = laplace(b, this.options.alpha);
+        const isRel = e.mode === 'result';
+        // 关系桶的参照招 = 上一局出的招（预测时已确定），关系分布据此摊回三招
+        const refMove = isRel ? e.refFor(history, history.length) : null;
+        const probs = isRel
+          ? expandRel(b, this.options.alpha, refMove)
+          : laplace(b, this.options.alpha);
         const conf = n / (n + 1);                 // 样本越多越自信（早期折扣较宽，让应验率尽早生效）
         // 样本收缩：应验率向 1/3 基准收缩（zOpt 为强度，0 = 直接用应验率）
         const accEst = zOpt > 0 ? shrink(e.accuracy, e.tries, zOpt) : e.accuracy;
@@ -341,22 +384,21 @@
         for (const m of MOVES) acc[m] += weight * probs[m];
         weightSum += weight;
 
+        const top = argmaxProbs(probs);
         breakdown.push({
           expert: e,
           matched: true,
           key,
-          counts: { R: b.R, P: b.P, S: b.S },
+          counts: isRel
+            ? { win: b.win, lose: b.lose, draw: b.draw }
+            : { R: b.R, P: b.P, S: b.S },
           probs,
           weight,
           accuracy: e.accuracy,
           tries: e.tries,
-          prediction: argmaxProbs(probs),
-          // 参照招：用于把具体招式计数换算成「相对关系」展示
-          refMove: e.source === 'self'
-            ? history[history.length - 1].human
-            : e.source === 'opp'
-              ? history[history.length - 1].cpu
-              : null,
+          // 关系桶展示的是关系预测（胜/负/平），出招桶展示的是招式
+          prediction: isRel ? relation(top, refMove) : top,
+          refMove,
         });
       }
       return { breakdown, acc, weightSum };

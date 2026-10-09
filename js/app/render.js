@@ -9,7 +9,7 @@
 
   const App = global.RPSApp;
   const { els, state, tx, isAssist, meName, oppName } = App;
-  const { MOVES, NAMES, EMOJI, COUNTER, VICTIM, judge, relation, randInt } = global.RPS;
+  const { MOVES, RELS, NAMES, EMOJI, COUNTER, VICTIM, judge, relMove, randInt } = global.RPS;
   const NIST = global.RPS_NIST;
 
   const pctText = (p) => (p * 100).toFixed(0) + '%';
@@ -352,6 +352,38 @@
     }
     const relName = (k) => ({ win: '胜', draw: '平', lose: '负' })[k];
 
+    /**
+     * 「预测」列的提示：先直接点明这次预测的招式，再用「——」带出它的来源。
+     * 关系类标准在括号里写明这次关系落成的是什么（参照招 = 上一局出的那一招）。
+     */
+    const predHint = (item) => {
+      const e = item.expert;
+      const n = e.order;
+      // 关系桶的 prediction 是关系，先按参照招换算成招式再取图标与名称
+      const move = e.mode === 'result' ? relMove(item.prediction, item.refMove) : item.prediction;
+      const pick = `${EMOJI[move]} ${NAMES[move]}`;
+
+      if (e.source === 'freq') {
+        return tx(`预测人类下一招出 ${pick} —— 历史上人类出这一招的比例最高。`);
+      }
+
+      if (e.mode === 'result') {
+        const ref = `${EMOJI[item.refMove]} ${NAMES[item.refMove]}`;
+        const own = e.source === 'self' ? '自己' : '电脑';
+        const how = item.prediction === 'win' ? `克制${own}上一招的 ${ref}`
+          : item.prediction === 'lose' ? `被${own}上一招的 ${ref} 克制`
+            : `与${own}上一招的 ${ref} 相同`;
+        const seq = item.key.split('>').map(relName).join(' → ');
+        return tx(`预测人类下一招出 ${pick}（${how}）—— 人类最近连续 ${n} 次相对${own}上一招的胜负关系为 ${seq} 时，历史上下一招出现最多的就是这种关系。`);
+      }
+
+      // 出招序列：与「当前依据」列同一种写法（✌️ → ✊）
+      const seq = item.key.replace(/>/g, ' → ').replace(/[RPS]/g, (m) => EMOJI[m]);
+      const who = e.source === 'self' ? '人类' : '电脑';
+      const tail = e.source === 'self' ? '下一招出这一招最多' : '人类下一招出这一招最多';
+      return tx(`预测人类下一招出 ${pick} —— ${who}最近连续 ${n} 招为 ${seq} 时，历史上${tail}。`);
+    };
+
     els.criteriaBody.innerHTML = ordered
       .map((item) => {
         const e = item.expert;
@@ -378,21 +410,20 @@
         let counts;
         let predCell;
         if (isRel) {
-          const tally = { win: 0, draw: 0, lose: 0 };
-          for (const m of MOVES) tally[relation(m, item.refMove)] += c[m];
-          counts = ['win', 'lose', 'draw']
-            .map((k) => `<span class="chip${tally[k] ? '' : ' zero'}">${relName(k)} ${Math.round(tally[k])}</span>`)
-            .join('');
-          const pk = relation(item.prediction, item.refMove);
-          predCell = `<span class="rel ${pk}">${relName(pk)}</span>`;
+          // 关系桶：计数与预测值都是关系（胜/负/平），不再折算
+          counts = RELS.map(
+            (k) => `<span class="chip${c[k] ? '' : ' zero'}">${relName(k)} ${Math.round(c[k])}</span>`
+          ).join('');
+          predCell = `<span class="rel ${item.prediction}">${relName(item.prediction)}</span>`;
         } else {
           counts = MOVES.map(
             (m) => `<span class="chip${c[m] ? '' : ' zero'}">${EMOJI[m]} ${Math.round(c[m])}</span>`
           ).join('');
           predCell = `${EMOJI[item.prediction]} ${NAMES[item.prediction]}`;
         }
+        const predTitle = predHint(item);
         const countsTitle = isRel
-          ? tx('在「当前依据」所示的局面下，历史上人类各关系（胜/负/平）出现的次数')
+          ? tx(`在「当前依据」所示的局面下，历史上人类下一招相对参照招 ${EMOJI[item.refMove]} 各关系（胜/负/平）出现的次数；换算成出招：胜 ${EMOJI[relMove('win', item.refMove)]}、平 ${EMOJI[relMove('draw', item.refMove)]}、负 ${EMOJI[relMove('lose', item.refMove)]}`)
           : tx(`在「当前依据」所示的局面下，历史上人类各招（${MOVES.map((m) => EMOJI[m]).join('/')}）出现的次数`);
         const keyText =
           item.key === 'ALL'
@@ -412,7 +443,7 @@
           ${title}
           <td class="c-key">${keyText}</td>
           <td class="c-counts" title="${countsTitle}">${counts}</td>
-          <td class="c-pred">${predCell}</td>
+          <td class="c-pred" title="${predTitle}">${predCell}</td>
           <td class="c-acc" title="${accTitle}">${accCell}</td>
           <td class="c-weight" title="权重占比 ${sharePct}%"><span class="w-track"><i style="width:${sharePct}%"></i></span></td>
         </tr>`;

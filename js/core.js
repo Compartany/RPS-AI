@@ -10,6 +10,8 @@
 
   /* 顺序即界面顺序（石头 → 剪刀 → 布）：凡是遍历 MOVES 的地方都按这个次序展示 */
   const MOVES = ['R', 'S', 'P'];
+  /* 关系顺序即界面顺序（胜 → 负 → 平）：胜负关系序列与统计都按这个次序展示 */
+  const RELS = ['win', 'lose', 'draw'];
   const NAMES = { R: '石头', P: '布', S: '剪刀' };
   const EMOJI = { R: '✊', P: '✋', S: '✌️' };   // 界面与日志都用 emoji 字符，字形由 assets/noto-subset.css 的字体决定
   const COUNTER = { R: 'P', P: 'S', S: 'R' };  // COUNTER[x] = 能击败 x 的招
@@ -25,6 +27,15 @@
   function relation(h, r) {
     if (h === r) return 'draw';
     return COUNTER[r] === h ? 'win' : 'lose';
+  }
+
+  /**
+   * 关系反查：给定「人类招相对参照招 r 的关系」，求出人类招（relation 的逆）。
+   * 参照招是已出过的招时，关系与人类招一一对应 —— 这正是关系型标准能换算成人招分布的依据。
+   */
+  function relMove(rel, r) {
+    if (rel === 'draw') return r;
+    return rel === 'win' ? COUNTER[r] : VICTIM[r];
   }
 
   /* ------------------------------ 数学 ------------------------------ */
@@ -156,8 +167,8 @@
   }
 
   global.RPS = {
-    MOVES, NAMES, EMOJI, COUNTER, VICTIM,
-    judge, relation,
+    MOVES, RELS, NAMES, EMOJI, COUNTER, VICTIM,
+    judge, relation, relMove,
     sum, clamp, round2, uniform, shrink, laplace, weightedMean,
     randFloat, randInt, shuffled, argmaxProbs, bestMoves, sampleProbs,
   };

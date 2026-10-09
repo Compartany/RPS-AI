@@ -895,9 +895,10 @@ html::-webkit-scrollbar,
   right: 0;
   max-width: min(460px, 76vw);
 }
-/* 策略参数栏是 overflow:auto 的滚动容器，会把溢出的伪元素提示裁掉（长文案尤其明显）。
-   栏内的提示改由 body 级浮层显示（见 main.js 的 initOverflowTips），这里禁掉伪元素版。 */
-.params [data-tip]:hover::after { display: none; }
+/* 策略参数栏与分析面板都是 overflow:auto 的滚动容器，会把溢出的伪元素提示裁掉（长文案尤其明显）。
+   这两处的提示改由 body 级浮层显示（见 main.js 的 initOverflowTips），这里禁掉伪元素版。 */
+.params [data-tip]:hover::after,
+.panel [data-tip]:hover::after { display: none; }
 /* body 级提示浮层：不受滚动容器裁剪，位置由 JS 按目标元素算并夹在视口内 */
 .tip-layer {
   position: fixed;

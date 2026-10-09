@@ -911,10 +911,12 @@
     }
 
     /**
-     * 需要走浮层的范围：桌面只有参数栏（滚动容器会裁掉伪元素提示）；
+     * 需要走浮层的范围：桌面上是参数栏与分析面板（都是 overflow 滚动容器，会裁掉伪元素提示）；
      * 手机（窄视口）下所有提示都走浮层，由 show() 把位置夹在视口内。
      */
-    const tipSel = () => (window.matchMedia('(max-width: 640px)').matches ? '[data-tip]' : '#params [data-tip]');
+    const tipSel = () => (window.matchMedia('(max-width: 640px)').matches
+      ? '[data-tip]'
+      : '#params [data-tip], .panel [data-tip]');
 
     document.addEventListener('mouseover', (ev) => {
       const el = ev.target.closest ? ev.target.closest(tipSel()) : null;
