@@ -123,6 +123,7 @@
   /** 对战模式：你出招（电脑的招已由 AI 定好） */
   function play(move) {
     if (state.revealed) startRound();   // 展示期间再次出招 → 立即开新局，不丢输入
+    fireBtn(els.choices.querySelector(`.choice[data-move="${move}"]`));   // 与补录按钮同一套点击确认
     settle(move, state.pending.cpuMove);
   }
 
@@ -662,9 +663,23 @@
   els.askCancel.addEventListener('click', closeAsk);
   els.askBackdrop.addEventListener('click', closeAsk);
 
+  /**
+   * 按钮的点击确认：在按钮上重放一次短促的闪动（同一颗按钮连点也能重新触发）。
+   * 出招与补录按钮共用（样式见 styles.css 的 :is(.choice, .pick).fired）。
+   */
+  function fireBtn(btn) {
+    if (!btn) return;
+    btn.classList.remove('fired');
+    void btn.offsetWidth;      // 强制回流，否则「摘掉再挂上」在同一帧内不会重新播放动画
+    btn.classList.add('fired');
+  }
+
   /** 辅助模式：补录对手（真人）的实际出招 —— 录完立刻结算 */
   function pickOpp(move) {
     if (state.revealed || !isAssist()) return;
+    // 补录完立刻进下一局，屏幕上会变的只有「上一局」那对角标 ——
+    // 连着补录同一招时连它们也不变，于是无从判断这一下点没点上；闪动补的就是这一下。
+    fireBtn(els.cpuPick.querySelector(`.pick[data-move="${move}"]`));
     state.picks.opp = move;
     commitRound();
   }
@@ -687,6 +702,11 @@
   els.cpuPick.addEventListener('click', (ev) => {
     const btn = ev.target.closest('.pick');
     if (btn) pickOpp(btn.dataset.move);
+  });
+  // 点击动画放完就把类摘掉（委托到 document，出招 / 补录按钮共用一套）
+  document.addEventListener('animationend', (ev) => {
+    const btn = ev.target.closest('.fired');
+    if (btn) btn.classList.remove('fired');
   });
 
   els.modeBtn.addEventListener('click', () => setMode(isAssist() ? 'duel' : 'assist'));
