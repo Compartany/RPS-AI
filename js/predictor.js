@@ -221,22 +221,40 @@
   }
 
   /**
-   * 依据「探索」与「押注」策略挑出实际出招。
-   * 两个随机数按固定顺序取用（与旧实现一致，保持行为不变）。
+   * 依据「探索」「弃用预测」与「押注」策略挑出实际出招。
+   *
+   * 先定「建议招」（三选一）：预测被证明显著劣于随机 → 弃用预测、均匀随机；未获押注 →
+   * 按预测分布取样；否则押注期望收益最高的一招。再看本局是否触发探索扰动：
+   * 触发则 AI 亲自出招时改出均匀随机（建议招不受影响 —— 不下场时不必为「不被看穿」牺牲建议）。
    */
-  function pickMove(meta, { weightSum, epsilon, trust, bestCpu }) {
+  function pickMove(meta, { weightSum, epsilon, trust, drop, bestCpu }) {
     if (weightSum === 0) {
       // 没有任何可信依据，谈不上「预测最优」，只能随机出招
-      return { cpuMove: MOVES[randInt(MOVES.length)], explore: false, sampled: false };
+      const m = MOVES[randInt(MOVES.length)];
+      return { cpuMove: m, suggest: m, explore: false, sampled: false, dropped: false };
     }
-    if (epsilon > 0 && randFloat() < epsilon) {
-      return { cpuMove: MOVES[randInt(MOVES.length)], explore: true, sampled: false };
-    }
-    if (randFloat() >= trust) {
+    let suggest;
+    let sampled = false;
+    let dropped = false;
+    if (drop > 0 && randFloat() < drop) {
+      // 预测的偏向与对手实际出招错配，照它取样仍会把这份偏向搬进出招：退回均匀随机
+      suggest = MOVES[randInt(MOVES.length)];
+      dropped = true;
+    } else if (randFloat() >= trust) {
       // 预测还没有显著优于随机：不押注最优招，改按预测分布取样
-      return { cpuMove: sampleProbs(meta), explore: false, sampled: true };
+      suggest = sampleProbs(meta);
+      sampled = true;
+    } else {
+      suggest = bestCpu;
     }
-    return { cpuMove: bestCpu, explore: false, sampled: false };
+    const explore = epsilon > 0 && randFloat() < epsilon;
+    return {
+      cpuMove: explore ? MOVES[randInt(MOVES.length)] : suggest,
+      suggest,                     // 建议招：辅助模式给玩家看的「我方出什么」
+      explore,
+      sampled,
+      dropped,
+    };
   }
 
   class Predictor {
@@ -473,12 +491,15 @@
       const bestCpu = bestTies[randInt(bestTies.length)];
       // 押注概率：AI 的预测是否已被证明显著优于随机（由主流程做显著性检验后写入）
       const trust = clamp(Number(this.options.predictTrust) || 0, 0, 1);
-      const move = pickMove(meta, { weightSum, epsilon: eps.epsilon, trust, bestCpu });
+      // 弃用概率：预测是否已被证明显著劣于随机（同样的检验，方向相反）
+      const drop = clamp(Number(this.options.predictDrop) || 0, 0, 1);
+      const move = pickMove(meta, { weightSum, epsilon: eps.epsilon, trust, drop, bestCpu });
       // 命中率的尺子 = AI 对下一招的预测（只看预测准不准，与电脑实际出什么招、是否探索无关）
       const target = argmaxProbs(meta);
 
       return {
         cpuMove: move.cpuMove,
+        suggest: move.suggest,                  // 建议招（辅助模式用）——不含探索扰动
         bestCpu,
         bestTies,                               // 期望收益并列最高的招（含 bestCpu，顺序为 MOVES 顺序）
         target,
@@ -488,7 +509,9 @@
         epsilon: eps.epsilon,
         explore: move.explore,
         sampled: move.sampled,                  // 本局是否「预测不显著 → 按分布取样」（未押注最优招）
+        dropped: move.dropped,                  // 本局是否「预测显著劣于随机 → 弃用预测」（改回均匀随机）
         trust,                                  // 本局的押注概率（0 = 从不押注，1 = 总是押注）
+        drop,                                   // 本局的弃用概率（0 = 从不弃用）
         earlyRandom: eps.earlyRandom,           // ε 是否由前期随机度主导
         earlyRand: eps.earlyRand,               // 前期随机度数值（不受上限约束）
         adaptiveEps: eps.adaptiveEps,           // 自适应扰动（不受上限约束）

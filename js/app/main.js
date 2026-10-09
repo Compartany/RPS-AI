@@ -30,19 +30,29 @@
     const hhmmss = t.toLocaleTimeString('zh-CN', { hour12: false })
       + '.' + String(t.getMilliseconds()).padStart(3, '0');
     if (isAssist()) {
-      // 辅助模式：AI 不亲自下场，输出的是「建议我方出什么」；
-      // 期望收益并列时两招都在建议之列（默认候选是其中随机挑的一个）
-      const ties = d.bestTies && d.bestTies.length > 1 ? d.bestTies : null;
-      const brief = (ties || [d.bestCpu]).map((m) => `${EMOJI[m]} ${NAMES[m]}(${m})`).join(' / ');
+      // 辅助模式：AI 不亲自下场，输出的是「建议我方出什么」。建议招由 pickMove 定：
+      // 押注最优招 / 按预测分布取样 / 弃用预测改随机（后者不受探索扰动影响）。
+      // 期望收益并列、且确实押注时，几招等价，一并列出。
+      const src = d.weightSum === 0 ? '暂无可信依据 · 随机'
+        : d.dropped ? '弃用预测 · 随机'
+          : d.sampled ? '按分布取样'
+            : '押注最优招';
+      const ties = !d.dropped && !d.sampled && d.bestTies && d.bestTies.length > 1 ? d.bestTies : null;
+      const brief = ties
+        ? ties.map((m) => `${EMOJI[m]} ${NAMES[m]}(${m})`).join(' / ')
+        : `${EMOJI[d.suggest]} ${NAMES[d.suggest]}(${d.suggest})`;
       console.log(
-        `%cRPS%c 第 ${round} 局 建议 %c${brief}%c  ·  军师建议  ·  ${hhmmss}`,
+        `%cRPS%c 第 ${round} 局 建议 %c${brief}%c  ·  ${src}  ·  ${hhmmss}`,
         'background:#12b886;color:#fff;border-radius:4px;padding:1px 5px;font-weight:700',
         'color:#a6afc9',
         'color:#63e6be;font-weight:700',
         null,
         {
           局号: round,
-          建议我方出: (ties || [d.bestCpu]).map((m) => `${NAMES[m]}(${m})`).join(' / '),
+          建议我方出: ties
+            ? `${ties.map((m) => NAMES[m]).join(' / ')}（并列，默认 ${NAMES[d.suggest]}）`
+            : `${NAMES[d.suggest]}(${d.suggest})`,
+          建议依据: src,
           预测对手出: `${NAMES[d.target]}(${d.target})`,
           预测最大概率: Math.max(d.metaProbs.R, d.metaProbs.P, d.metaProbs.S),
           时间戳: t.toISOString(),
@@ -131,8 +141,8 @@
   function commitRound() {
     const opp = state.picks.opp;
     if (!opp || state.revealed || !state.pending) return;
-    // 我方本轮的招：默认用 AI 推荐，改选过就按改选的出
-    settle(state.picks.me || state.pending.bestCpu, opp);
+    // 我方本轮的招：默认用 AI 的建议（suggest —— 预测不显著时它可能是取样招甚至随机招），改选过就按改选的出
+    settle(state.picks.me || state.pending.suggest, opp);
   }
 
   /**
@@ -162,7 +172,8 @@
     if (state.hitLog.length > 5000) state.hitLog.splice(0, state.hitLog.length - 5000);
 
     // 若这局不探索（始终按最优预测出招）的胜负，用于「最优胜率」与探索上限估计。
-    // 「按最优出招」的一方总是 AI：对战模式下它是电脑（bestCpu），辅助模式下是我方照 bestCpu 出。
+    // 这是「完全押注」这一假想打法的战绩，与实际采用哪种出招策略无关：
+    // 「按最优出招」的一方总是 AI：对战模式下它是电脑（bestCpu），辅助模式下换成我方照 bestCpu 出。
     // 所以判定要跟着被预测者换边；结果统一记成「按最优出招的一方」视角：cpu = 它赢、human = 它输。
     const idealRes = isAssist()
       ? judge(state.pending.bestCpu, oppMove)   // 辅助：我方（最优招）vs 真人对手的实际出招

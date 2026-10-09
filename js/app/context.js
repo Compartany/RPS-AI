@@ -41,7 +41,7 @@
     'history', 'seg', 'segStart', 'lastAt', 'stats', 'hit', 'hitTries', 'hitLog', 'ideal', 'bestLog',
     'shadow', 'shadowTargets', 'rateTable',
     'decayShadow', 'decayTargets', 'decayRateTable',
-    'exploreStat', 'exploreCap', 'predictStat', 'predictTrust',
+    'exploreStat', 'exploreCap', 'predictStat', 'predictTrust', 'predictDrop',
     'streak', 'lastResult',
   ];
 
@@ -337,6 +337,7 @@
       exploreCap: 0,
       predictStat: null,
       predictTrust: 0,
+      predictDrop: 0,
       streak: { side: null, count: 0 },
       lastResult: null,
     };

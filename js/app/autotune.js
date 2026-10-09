@@ -209,6 +209,9 @@
    * 押注判定：只有「AI 预测命中率」显著高于随机基准 1/3，才值得按最优招押注。
    * 预测未被证明有用时，`decide` 会改按预测分布取样 —— argmax 是确定性函数，
    * 靠噪声排出的「最优招」排序一旦固定，AI 就会长期出同一招，极易被反制。
+   * 反向同理：命中率显著**低于** 1/3 时，预测不只是没用，它的偏向还在实打实地拖后腿
+   * （预测集中的那一招，恰是对手出得少的那些），连「按预测分布取样」也不该用 ——
+   * 那是一份已知与对手错配的分布，照它取样仍会把偏向搬进出招里；此时退回均匀随机。
    * 与探索上限同一套口径（Agresti-Coull 平滑 + Kish 有效样本量 + 单侧 z 检验），方向相反。
    */
   function syncPredictTrust() {
@@ -216,16 +219,21 @@
     const win = state.hitLog.slice(-App.Z_WINDOW);
     let stat = null;
     let trust = 0;
+    let drop = 0;
     if (win.length >= App.Z_MIN_SAMPLES) {
       const st = zTest(win, hl, +1, (v) => !!v);
+      const back = zTest(win, hl, -1, (v) => !!v);   // 方向取 −1：z > 0 表示命中率低于 1/3
       if (st) {
         trust = zStrength(st.z);
-        stat = Object.assign({}, st, { trust });
+        drop = back ? zStrength(back.z) : 0;
+        stat = Object.assign({}, st, { trust, drop });
       }
     }
     state.predictStat = stat;
     state.predictTrust = trust;
+    state.predictDrop = drop;
     App.predictor.options.predictTrust = trust;
+    App.predictor.options.predictDrop = drop;
   }
 
   Object.assign(App, { hitStats, autoTuneStep, syncPredictTrust });

@@ -76,16 +76,21 @@
     const assist = isAssist();
     // 对手的招：揭示后看本局实际出招，否则看辅助模式里已补录的那一招
     const oppShown = state.revealed ? state.revealedOpp : (assist ? state.picks.opp : null);
-    // 我方的招：辅助模式下默认照 AI 推荐（bestCpu），玩家可以在下方三颗按钮上改选；
+    // 我方的招：辅助模式下默认照 AI 的建议（pending.suggest —— 押注时它就是期望收益最高的招，
+    // 未获押注时是按预测分布取样、甚至弃用预测后随机出来的招），玩家可在下方三颗按钮上改选；
     // 对战模式下等玩家点。即使暂时没有可信依据也必须给出确定的一招 —— 我方就是照它出的。
-    // 期望收益并列最高时（pending.bestTies）这几招都算「AI 推荐」；默认候选是其中随机的一个
+    // 真在押注、且期望收益并列最高时，这几招都算「AI 推荐」（默认候选是其中随机的一个）；
+    // 没押注时建议不等于收益最高的招，只把实际给出的那一招标为推荐。
+    const betting = assist && !state.revealed && pending.weightSum > 0 && !pending.sampled && !pending.dropped;
     const advisedTies = assist && !state.revealed && pending.weightSum > 0
-      ? (pending.bestTies && pending.bestTies.length ? pending.bestTies : [pending.bestCpu])
+      ? (betting
+        ? (pending.bestTies && pending.bestTies.length ? pending.bestTies : [pending.bestCpu])
+        : [pending.suggest])
       : [];
     const myShown = state.revealed
       ? state.revealedMove
       : assist
-        ? (state.picks.me || pending.bestCpu)
+        ? (state.picks.me || pending.suggest)
         : null;
 
     // ---- 对手（电脑）一侧 ----
@@ -128,9 +133,9 @@
       // 没有可信依据（AI 随机出招、算不出收益）时干脆不标：那时连「推荐」都不存在，
       // 挂个角标反而是噪音。
       const altered = assist && !state.revealed && picked && !!state.picks.me && hasScores
-        && (advisedTies.length > 1 || state.picks.me !== pending.bestCpu);
+        && (advisedTies.length > 1 || state.picks.me !== pending.suggest);
       if (altered) {
-        const best = pending.scores[pending.bestCpu];
+        const best = pending.scores[pending.suggest];
         // 用界面上已经显示的那两个数（都是两位小数）相减，角标才跟 .ev 对得上：
         // 例如 .ev 写着 +0.30 与 −0.30，人一眼心算的差是 −0.60，就不该出现 −0.61。
         const r2 = (v) => Math.round(v * 100) / 100;
@@ -152,13 +157,16 @@
       : assist
         ? assistEvidence(pending)
         : '请出招';
-    // 辅助模式下这个标签讲的是「AI 凭什么这么出」，鼠标悬停给出口径说明
+    // 辅助模式下这个标签讲的是「AI 凭什么这么建议」，鼠标悬停给出口径说明
     if (assist) {
       els.humanTag.setAttribute('title',
-        `AI 取「期望收益最高」（赢面 − 输面）的一招出，标签列出它据以判断的${oppName()}出招概率。`
+        `AI 先预测${oppName()}最可能出什么，再把「期望收益最高」（赢面 − 输面）的一招作为建议。`
         + '多数时候它就是克制最高概率项的那招，所以只列一项；若多列了一项，'
-        + '说明出最高项本身比克制它更划算。若两招期望收益完全相同，则并列给出，'
-        + '默认候选在两者间随机。下方三颗按钮可以改选我方出招，不改就按 AI 推荐出。');
+        + '说明出最高项本身比克制它更划算。若两招期望收益完全相同，则并列给出，默认候选在两者间随机。'
+        + '两种情况会让建议不再是收益最高的那一招：预测命中率未被证明显著高于随机时不押注，'
+        + '改按预测分布取样（仍偏向它认为对手更可能出的招，但不再固定）；'
+        + '被证明显著低于随机时连预测分布也不采信，本局随机出招。'
+        + '下方三颗按钮可以改选我方出招，不改就按 AI 建议出。');
     } else {
       els.humanTag.removeAttribute('title');
       els.humanTag.removeAttribute('data-tip');
@@ -201,6 +209,9 @@
    */
   function assistEvidence(pd) {
     if (!pd || pd.weightSum === 0) return '暂无可信依据';
+    // 建议不再来自押注时先把这一点说清楚 —— 取样/随机的招与「收益最高的招」不是一回事
+    if (pd.dropped) return '预测已弃用 · 本局随机出招';
+    if (pd.sampled) return `未押注 · 按分布取样（预测 ${EMOJI[pd.target]} ${NAMES[pd.target]}）`;
     const p = pd.metaProbs;
     // 并列最优：光列对手概率推不出「两招都行」，直接把建议集与共同期望收益摆出来
     const ties = pd.bestTies && pd.bestTies.length > 1 ? pd.bestTies : null;
@@ -280,7 +291,7 @@
     renderCompare();      // 参数面板里的档位对比/探索判定独立于分析面板，随时保持最新
     renderRandomness();   // 不可预测性评估在左侧游戏区，同样与面板开关无关
     if (els.panel.hidden || !state.pending) return;
-    const { metaProbs, cpuMove, bestCpu, bestTies, breakdown, epsilon, explore, sampled, weightSum, scores } = state.pending;
+    const { metaProbs, cpuMove, suggest, bestCpu, bestTies, breakdown, epsilon, explore, sampled, dropped, weightSum, scores } = state.pending;
 
     // 预测概览（无真实依据时不显示预测）
     const hasData = breakdown.some((b) => !b.baseline && b.matched);
@@ -310,25 +321,23 @@
 
       // 辅助模式给的是「建议我方出」，对战模式才是 AI 自己出招
       const assist = isAssist();
-      const pickMove = assist ? bestCpu : cpuMove;
+      const pickMove = assist ? suggest : cpuMove;
       const bv = (scores && scores[pickMove]) || 0;
       const noData = weightSum === 0;
       const targetNote = noData
         ? '（随机出招）'
-        : explore
-          ? '（探索）'
-          : sampled
-            ? '（按分布取样）'
-            : '';
+        : assist
+          ? dropped ? '（弃用预测 · 随机）' : sampled ? '（按分布取样）' : ''
+          : explore ? '（探索）' : dropped ? '（弃用预测 · 随机）' : sampled ? '（按分布取样）' : '';
 
       // 本局随机概率的提示：三项来源取最大，并指出当前是谁在起作用
       const epsTip = epsBreakdown(state.pending).tip;
       const targetLine = assist
-        ? `建议我方出 <b>${EMOJI[pickMove]} ${NAMES[pickMove]}</b>${noData ? '（暂无可信依据）' : ''}`
+        ? `建议我方出 <b>${EMOJI[pickMove]} ${NAMES[pickMove]}</b>${targetNote}`
         : `电脑选 <b>${EMOJI[cpuMove]} ${NAMES[cpuMove]}</b>${targetNote}`;
       const targetTip = assist
-        ? 'AI 先预测对手最可能出什么，再按「期望收益最高」给出我方该出的招。'
-        : 'AI 按「期望收益最高」的一招出招。括号说明本局的特殊情况：「随机出招」= 所有标准应验率均未超过随机基准，只能出随机招；「探索」= 本局触发探索扰动，并非按期望收益所选；「按分布取样」= 预测尚未显著优于随机，改按预测分布取样。';
+        ? 'AI 先预测对手最可能出什么，再把「期望收益最高」的一招作为建议。「弃用预测 · 随机」= 预测命中率已被证明显著低于随机基准，本局的预测不只是没用、偏向还在拖后腿，于是完全不采信，改回均匀随机；「按分布取样」= 预测尚未显著优于随机，不押注收益最高的那一招，改按预测分布取样。'
+        : 'AI 按「期望收益最高」的一招出招。括号说明本局的特殊情况：「随机出招」= 所有标准应验率均未超过随机基准，只能出随机招；「探索」= 本局触发探索扰动，并非按预测所选；「按分布取样」= 预测尚未显著优于随机，改按预测分布取样；「弃用预测 · 随机」= 预测命中率已被证明显著低于随机基准，本局不采信预测分布，改出均匀随机。';
       els.forecast.innerHTML = `
         <div class="fc-head">${tx('下招预测（人类）')}</div>
         ${bars}
@@ -516,15 +525,17 @@
     if (!els.predictCompare) return;
     const ps = state.predictStat;
     const tp = Math.round((state.predictTrust || 0) * 100);
+    const dp = Math.round((state.predictDrop || 0) * 100);
     els.predictCompare.innerHTML =
       cmpTitle('押注判定', state.hitLog.slice(-App.Z_WINDOW).length,
         isAssist()
-          ? '辅助模式下 AI 不亲自出招（只给建议），这里展示的是模型内部的押注策略指标，仅供观察。'
-          : tx('决定 AI 是否「押注」自己的预测。只有预测被证明确实优于随机时，它才挑期望收益最高的一招出；否则按预测分布随机取一招，避免长期出同一招而被人类反制。')) +
+          ? '辅助模式下 AI 不亲自出招，这里展示的三项判定决定它给出的建议：预测被证明确实优于随机才押注收益最高的那一招，否则按预测分布取样；若被证明比随机还差，则连预测分布也不采信，本局随机出招。'
+          : tx('决定 AI 是否「押注」自己的预测：只有预测被证明确实优于随机时，它才挑期望收益最高的一招出；否则按预测分布随机取一招，避免长期出同一招而被人类反制。若预测被证明比随机还差，则连预测分布也不采信，直接出随机招。')) +
       `<div class="exp-row" data-tip="${tx('最近这些局里，AI 对下一招的预测命中人类实际出招的比例（跟它自己出什么招无关）。约 33% 即完全随机的水平；开局样本不足时各标准尚未形成依据，接近 33% 属正常现象。')}"><span>预测命中率</span><b>${ps ? (ps.w * 100).toFixed(1) + '%' : '\u2014'}</b></div>` +
       `<div class="exp-row" data-tip="${tx(`实际参与统计的对局数（按半衰期加权后的等效数量，越近的对局权重越大）。样本过少时结果不可靠，故不足 ${App.Z_MIN_SAMPLES} 局不做判定。`)}"><span>有效局数</span><b>${ps ? ps.nEff.toFixed(1) : '\u2014'}</b></div>` +
-      `<div class="exp-row" data-tip="${tx('「预测确实优于随机」这一判断的显著性。≤ 1 视为无差别，此时不押注；达到 3 则完全采信预测，每局押注最优招。')}"><span>可信程度</span><b>${ps ? ps.z.toFixed(2) : '\u2014'}</b></div>` +
-      `<div class="exp-row" data-tip="${tx('本局直接押注最优招的概率，其余概率按预测分布取样（出招仍偏向其认为人类更可能出的一招，但不再固定）。')}"><span>押注概率</span><b>${tp}%</b></div>`;
+      `<div class="exp-row" data-tip="${tx('「预测与随机有多大差别」这一判断的显著性：为正当且达到 3 时完全采信预测、每局押注最优招；为负则说明命中率反而不及随机。绝对值 ≤ 1 视为无差别，此时既不押注、也不弃用。')}"><span>可信程度</span><b>${ps ? ps.z.toFixed(2) : '\u2014'}</b></div>` +
+      `<div class="exp-row" data-tip="${tx('本局直接押注最优招的概率，其余概率按预测分布取样（出招仍偏向其认为人类更可能出的一招，但不再固定）。')}"><span>押注概率</span><b>${tp}%</b></div>` +
+      `<div class="exp-row" data-tip="${tx('本局完全不采信预测、改出均匀随机的概率。预测的偏向与对手实际出招错配时，照预测分布取样仍会把这份偏向搬进出招里，不如退回随机。')}"><span>弃用预测概率</span><b>${dp}%</b></div>`;
   }
 
   /* ============================== 不可预测性评估 ============================== */
